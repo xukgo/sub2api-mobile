@@ -182,7 +182,6 @@ fun AccountsScreen(
                         AccountCard(
                             account = account,
                             quota = state.aiAccountQuotas[account.id],
-                            quotaLoading = state.quotaLoading && account.id !in state.aiAccountQuotas,
                             busy = state.accountsLoading,
                             onTest = { testingAccount = account },
                             onPriority = { priorityAccount = account },
@@ -317,7 +316,6 @@ private fun QuotaSummaryBand(
 private fun AccountCard(
     account: AiAccount,
     quota: AiAccountQuota?,
-    quotaLoading: Boolean,
     busy: Boolean,
     onTest: () -> Unit,
     onPriority: () -> Unit,
@@ -379,11 +377,7 @@ private fun AccountCard(
                     }
                 }
             }
-            TextButton(onClick = onPriority, enabled = !busy, modifier = Modifier.padding(horizontal = 6.dp)) {
-                Text("优先级：${account.priority}")
-                Icon(Icons.Outlined.Edit, "修改优先级", modifier = Modifier.padding(start = 6.dp).size(14.dp))
-            }
-            AccountQuotaBlock(quota = quota, loading = quotaLoading)
+            AccountQuotaBlock(quota = quota)
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(
                 modifier = Modifier.fillMaxWidth().padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
@@ -396,7 +390,12 @@ private fun AccountCard(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
+                }
+                TextButton(onClick = onPriority, enabled = !busy, contentPadding = PaddingValues(horizontal = 8.dp)) {
+                    Text("优先级：${account.priority}", style = MaterialTheme.typography.labelMedium)
+                    Icon(Icons.Outlined.Edit, "修改优先级", modifier = Modifier.padding(start = 4.dp).size(14.dp))
                 }
                 IconButton(onClick = onTest, enabled = !busy) { Icon(Icons.Outlined.NetworkCheck, "测试连接") }
             }
@@ -405,7 +404,13 @@ private fun AccountCard(
 }
 
 @Composable
-private fun AccountQuotaBlock(quota: AiAccountQuota?, loading: Boolean) {
+private fun AccountQuotaBlock(quota: AiAccountQuota?) {
+    val metrics = quota?.metrics.orEmpty().filter {
+        it.remainingPercent?.isFinite() == true || it.remainingAmount?.isFinite() == true
+    }
+    if (metrics.isEmpty()) return
+    val remaining = metrics.mapNotNull { it.remainingPercent?.takeIf(Double::isFinite) }.minOrNull()
+    val primaryMetric = metrics.firstOrNull { it.unit == "credits" && it.remainingAmount?.isFinite() == true } ?: metrics.first()
     Column(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(Icons.Outlined.DataUsage, null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
@@ -416,21 +421,14 @@ private fun AccountQuotaBlock(quota: AiAccountQuota?, loading: Boolean) {
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Spacer(Modifier.weight(1f))
-            val remaining = quota?.remainingPercent
-            val credits = quota?.metrics?.firstOrNull { it.unit == "credits" }
             Text(
-                when {
-                    remaining != null -> formatPercent(remaining)
-                    credits != null -> formatMetricValue(credits)
-                    loading -> "读取中"
-                    else -> "--"
-                },
+                if (remaining != null) formatPercent(remaining) else formatMetricValue(primaryMetric),
                 style = MaterialTheme.typography.labelLarge,
                 fontWeight = FontWeight.Bold,
                 color = if (remaining != null) quotaColor(remaining) else MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        quota?.remainingPercent?.let { remaining ->
+        remaining?.let { remaining ->
             ContinuousLinearProgressIndicator(
                 progress = { (remaining / 100.0).toFloat() },
                 modifier = Modifier.fillMaxWidth().padding(top = 7.dp).height(5.dp),
@@ -438,15 +436,15 @@ private fun AccountQuotaBlock(quota: AiAccountQuota?, loading: Boolean) {
                 trackColor = MaterialTheme.colorScheme.surfaceVariant,
             )
         }
-        val metrics = quota?.metrics.orEmpty()
+        val visibleMetrics = metrics
             .sortedWith(compareBy<AiQuotaMetric> { it.remainingPercent ?: Double.MAX_VALUE }.thenBy { it.label })
             .take(4)
-        if (metrics.isNotEmpty()) {
+        if (visibleMetrics.isNotEmpty()) {
             Row(
                 modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(top = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                metrics.forEach { metric ->
+                visibleMetrics.forEach { metric ->
                     Surface(shape = RoundedCornerShape(6.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
                         Text(
                             "${shortQuotaLabel(metric.label)} ${formatMetricValue(metric)}",
@@ -458,13 +456,6 @@ private fun AccountQuotaBlock(quota: AiAccountQuota?, loading: Boolean) {
                     }
                 }
             }
-        } else if (!loading) {
-            Text(
-                if (quota?.error.isNullOrBlank()) "额度未知" else "额度读取失败",
-                modifier = Modifier.padding(top = 5.dp),
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.outline,
-            )
         }
     }
 }
@@ -745,6 +736,7 @@ private fun formatMetricValue(metric: AiQuotaMetric): String {
         amount != null && metric.unit == "USD" -> "$${DecimalFormat("#,##0.00").format(amount)}"
         amount != null && metric.unit == "credits" -> "${formatQuotaNumber(amount)} Credits"
         amount != null && !metric.unit.isNullOrBlank() -> "${formatQuotaNumber(amount)} ${metric.unit}"
+        amount != null -> formatQuotaNumber(amount)
         metric.remainingPercent != null -> formatPercent(metric.remainingPercent)
         else -> "--"
     }

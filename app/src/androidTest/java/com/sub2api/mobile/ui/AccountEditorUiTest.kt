@@ -11,6 +11,8 @@ import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextReplacement
 import com.sub2api.mobile.AppUiState
 import com.sub2api.mobile.data.AiAccount
+import com.sub2api.mobile.data.AiAccountQuota
+import com.sub2api.mobile.data.AiQuotaMetric
 import com.sub2api.mobile.data.UpdateAiAccountRequest
 import com.sub2api.mobile.data.User
 import com.sub2api.mobile.ui.screens.AccountsScreen
@@ -24,14 +26,15 @@ class AccountEditorUiTest {
     private var updated: UpdateAiAccountRequest? = null
     private var toggles = 0
 
-    private fun showAccounts(type: String = "apikey") {
+    private fun showAccounts(type: String = "apikey", quota: AiAccountQuota? = null) {
         val account = AiAccount(id = 1, name = "Upstream", platform = "openai", type = type, status = "active", schedulable = false, priority = 8,
             credentials = mapOf("base_url" to "https://old.example.com", "model_mapping" to mapOf("a" to "b")),
             credentialsStatus = mapOf("has_api_key" to true))
         compose.setContent {
             Sub2ApiTheme {
                 AccountsScreen(
-                    state = AppUiState(user = User(id = 1, role = "admin"), aiAccounts = listOf(account), allAiAccounts = listOf(account)),
+                    state = AppUiState(user = User(id = 1, role = "admin"), aiAccounts = listOf(account), allAiAccounts = listOf(account),
+                        aiAccountQuotas = quota?.let { mapOf(account.id to it) }.orEmpty()),
                     onFilter = { _, _, _ -> }, onCreate = { _, _, _, _ -> },
                     onUpdate = { _, request, done -> updated = request; done() },
                     onTest = { _, _ -> },
@@ -83,6 +86,9 @@ class AccountEditorUiTest {
     @Test
     fun priorityCanBeEditedDirectlyWithoutChangingOtherSettings() {
         showAccounts()
+        val priority = compose.onNodeWithText("优先级：8").fetchSemanticsNode().boundsInRoot
+        val test = compose.onNodeWithContentDescription("测试连接").fetchSemanticsNode().boundsInRoot
+        assertTrue("Priority and connection test should share one row", priority.top < test.bottom && test.top < priority.bottom)
         compose.onNodeWithText("优先级：8").performClick()
         compose.onNodeWithText("优先级").performTextReplacement("-3")
         compose.onNodeWithText("保存").performClick()
@@ -102,5 +108,28 @@ class AccountEditorUiTest {
         compose.onNodeWithText("保存").performClick()
         compose.onNodeWithText("请输入有效整数").assertExists()
         compose.runOnIdle { assertNull(updated) }
+    }
+
+    @Test
+    fun unknownQuotaDoesNotOccupyAnAccountCardRow() {
+        showAccounts(quota = AiAccountQuota(1, error = "unavailable"))
+        compose.onNodeWithText("剩余额度").assertDoesNotExist()
+        compose.onNodeWithText("额度未知").assertDoesNotExist()
+        compose.onNodeWithText("额度读取失败").assertDoesNotExist()
+        compose.onNodeWithText("优先级：8").assertExists()
+    }
+
+    @Test
+    fun knownZeroQuotaStillShowsAsZero() {
+        showAccounts(quota = AiAccountQuota(1, listOf(AiQuotaMetric("7d", 0.0))))
+        compose.onNodeWithText("剩余额度").assertExists()
+        compose.onNodeWithText("0%").assertExists()
+    }
+
+    @Test
+    fun amountOnlyQuotaRemainsVisible() {
+        showAccounts(quota = AiAccountQuota(1, listOf(AiQuotaMetric("余额", remainingAmount = 0.0, unit = "USD"))))
+        compose.onNodeWithText("剩余额度").assertExists()
+        compose.onNodeWithText("$0.00").assertExists()
     }
 }

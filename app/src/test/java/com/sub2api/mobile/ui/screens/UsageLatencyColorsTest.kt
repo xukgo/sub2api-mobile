@@ -9,29 +9,47 @@ import kotlin.math.abs
 class UsageLatencyColorsTest {
     @Test
     fun missingAndInvalidTimingKeepNeutralBackgroundAndSlowRequestsStayRed() {
-        val surface = Color.White
-        assertEquals(surface, firstTokenCardColor(null, surface))
-        assertEquals(surface, firstTokenCardColor(-1, surface))
-        assertEquals(firstTokenCardColor(40_000, surface), firstTokenCardColor(40_001, surface))
-        assertEquals(firstTokenCardColor(40_000, surface), firstTokenCardColor(Long.MAX_VALUE, surface))
-        val fast = firstTokenCardColor(0, surface)
-        assertTrue(fast.green > fast.red)
-        val slow = firstTokenCardColor(40_000, surface)
-        assertTrue(slow.red > slow.green && slow.red > slow.blue)
+        for (surface in listOf(Color.White, Color(0xFF151C18))) {
+            assertEquals(surface, firstTokenCardColor(null, surface))
+            assertEquals(surface, firstTokenCardColor(-1, surface))
+            assertEquals(firstTokenCardColor(40_000, surface), firstTokenCardColor(40_001, surface))
+            assertEquals(firstTokenCardColor(40_000, surface), firstTokenCardColor(Long.MAX_VALUE, surface))
+            val fast = firstTokenCardColor(0, surface)
+            assertTrue(fast.green > fast.red)
+            val slow = firstTokenCardColor(40_000, surface)
+            assertTrue(slow.red > slow.green && slow.red > slow.blue)
+        }
     }
 
     @Test
     fun everyIntervalChangesGraduallyWithoutJumpsAtThresholds() {
-        val surface = Color.White
-        for ((from, to) in listOf(0L to 5_000L, 5_000L to 10_000L, 10_000L to 20_000L, 20_000L to 40_000L)) {
-            val middle = firstTokenCardColor((from + to) / 2, surface)
-            assertNotEquals(firstTokenCardColor(from, surface), middle)
-            assertNotEquals(firstTokenCardColor(to, surface), middle)
-            val left = firstTokenCardColor(to - 1, surface)
-            val right = firstTokenCardColor(to + 1, surface)
-            assertTrue(abs(left.red - right.red) < 0.001f)
-            assertTrue(abs(left.green - right.green) < 0.001f)
-            assertTrue(abs(left.blue - right.blue) < 0.001f)
+        for (surface in listOf(Color.White, Color(0xFF151C18))) {
+            for ((from, to) in listOf(0L to 5_000L, 5_000L to 10_000L, 10_000L to 20_000L, 20_000L to 40_000L)) {
+                val middle = firstTokenCardColor((from + to) / 2, surface)
+                assertNotEquals(firstTokenCardColor(from, surface), middle)
+                assertNotEquals(firstTokenCardColor(to, surface), middle)
+                val left = firstTokenCardColor(to - 1, surface)
+                val right = firstTokenCardColor(to + 1, surface)
+                assertTrue(abs(left.red - right.red) < 0.001f)
+                assertTrue(abs(left.green - right.green) < 0.001f)
+                assertTrue(abs(left.blue - right.blue) < 0.001f)
+            }
+        }
+    }
+
+    @Test
+    fun bothThemesRetainDistinctGreenYellowOrangeAndRedHues() {
+        for (surface in listOf(Color.White, Color(0xFF151C18))) {
+            val green = firstTokenCardColor(0, surface)
+            val yellow = firstTokenCardColor(5_000, surface)
+            val orange = firstTokenCardColor(10_000, surface)
+            val pink = firstTokenCardColor(20_000, surface)
+            val red = firstTokenCardColor(40_000, surface)
+            assertTrue(green.green > green.red && green.green > green.blue)
+            assertTrue(yellow.red > yellow.blue && yellow.green > yellow.blue)
+            assertTrue(orange.red > orange.green && orange.green > orange.blue)
+            assertTrue(orange.green < yellow.green)
+            assertTrue(red.red - red.green > pink.red - pink.green)
         }
     }
 

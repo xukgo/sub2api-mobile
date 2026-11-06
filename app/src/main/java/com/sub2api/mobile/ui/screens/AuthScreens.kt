@@ -160,7 +160,7 @@ fun LoginScreen(
                     leadingIcon = { Icon(Icons.Outlined.Mail, null) },
                     singleLine = true,
                     enabled = !state.loading,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, imeAction = ImeAction.Next),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false, imeAction = ImeAction.Next),
                 )
                 OutlinedTextField(
                     value = password,
@@ -176,7 +176,8 @@ fun LoginScreen(
                     visualTransformation = if (passwordVisible) VisualTransformation.None else PasswordVisualTransformation(),
                     singleLine = true,
                     enabled = !state.loading,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password, imeAction = ImeAction.Done),
+                    // Keep the visual mask independent of the IME type so OEM password keyboards are not requested.
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, autoCorrectEnabled = false, imeAction = ImeAction.Done),
                     keyboardActions = KeyboardActions(onDone = { onLogin(email, password) }),
                 )
                 Button(onClick = { onLogin(email, password) }, modifier = Modifier.fillMaxWidth().height(50.dp), enabled = !state.loading) {
