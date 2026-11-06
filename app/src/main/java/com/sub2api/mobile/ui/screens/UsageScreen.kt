@@ -8,108 +8,240 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.sub2api.mobile.AppUiState
+import com.sub2api.mobile.UsageViewState
+import com.sub2api.mobile.data.UsageFilters
 import com.sub2api.mobile.data.UsageLog
-import com.sub2api.mobile.ui.components.EmptyState
+import com.sub2api.mobile.data.accountLabel
+import com.sub2api.mobile.data.channelLabel
+import com.sub2api.mobile.data.channelPerformance
+import com.sub2api.mobile.data.outputRate
+import com.sub2api.mobile.data.sortedUserRanking
+import com.sub2api.mobile.data.usageDateRange
 import com.sub2api.mobile.ui.components.AppCardShape
+import com.sub2api.mobile.ui.components.EmptyState
+import com.sub2api.mobile.ui.components.FullScreenLoading
 import com.sub2api.mobile.ui.components.MetricCard
 import com.sub2api.mobile.ui.components.SectionHeader
 import com.sub2api.mobile.ui.components.appCardBorder
 import com.sub2api.mobile.ui.components.formatCount
 import com.sub2api.mobile.ui.components.formatDate
 import com.sub2api.mobile.ui.components.formatMoney
-import com.sub2api.mobile.ui.icons.Icon
-import com.sub2api.mobile.ui.icons.Icons
-import com.sub2api.mobile.ui.theme.Amber
-import com.sub2api.mobile.ui.theme.Coral
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
-private data class PeriodOption(val value: String, val label: String)
-private val periods = listOf(PeriodOption("today", "今日"), PeriodOption("week", "本周"), PeriodOption("month", "本月"))
-
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun UsageScreen(state: AppUiState, onPeriodChange: (String) -> Unit) {
-    val stats = state.usageStats
-    LazyColumn(
-        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(10.dp),
-    ) {
+fun UsageScreen(
+    state: AppUiState,
+    onPeriodChange: (String) -> Unit,
+    onRefresh: () -> Unit = {},
+    onPageChange: (Int) -> Unit = {},
+) {
+    LaunchedEffect(state.user?.id, state.user?.role) { onRefresh() }
+    UsageRecords(state.personalUsage, false, onPeriodChange, onRefresh, onPageChange)
+}
+
+@Composable
+fun AdminUsageScreen(
+    state: AppUiState,
+    onLoad: (String, Int, UsageFilters) -> Unit,
+    onRanking: (String, String, Boolean) -> Unit,
+    onCancelRanking: () -> Unit,
+) {
+    if (state.user?.role != "admin") { EmptyState("仅管理员可查看所有用量"); return }
+    var mode by rememberSaveable { mutableStateOf("records") }
+    DisposableEffect(Unit) { onDispose { onCancelRanking() } }
+    LaunchedEffect(mode) {
+        if (mode == "records") { onCancelRanking(); onLoad(state.adminUsage.period, 1, state.adminUsage.filters) }
+        else onRanking(state.rankingPeriod, state.rankingMetric, false)
+    }
+    Column {
+        UsageChoices(listOf("records" to "所有记录", "ranking" to "用户排行"), mode, { mode = it })
+        if (mode == "ranking") UserRanking(state, onRanking)
+        else UsageRecords(state.adminUsage, true,
+            { onLoad(it, 1, state.adminUsage.filters) },
+            { onLoad(state.adminUsage.period, state.adminUsage.page, state.adminUsage.filters) },
+            { onLoad(state.adminUsage.period, it, state.adminUsage.filters) },
+            { onLoad(state.adminUsage.period, 1, it) })
+    }
+}
+
+@Composable
+private fun UsageRecords(
+    state: UsageViewState,
+    admin: Boolean,
+    onPeriod: (String) -> Unit,
+    onRefresh: () -> Unit,
+    onPage: (Int) -> Unit,
+    onFilter: (UsageFilters) -> Unit = {},
+) {
+    var showPerformance by rememberSaveable { mutableStateOf(false) }
+    val dates = usageDateRange(state.period)
+    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        item { UsageChoices(listOf("today" to "今日", "week" to "近 7 天", "month" to "近 30 天") +
+            (if (admin) listOf("all" to "全部") else emptyList()), state.period, onPeriod) }
+        item { Text("${dates.start} — ${dates.end} · ${ZoneId.systemDefault().id}", style = MaterialTheme.typography.labelSmall) }
+        if (admin) item { UsageFilterForm(state.filters, onFilter) }
         item {
-            SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
-                periods.forEachIndexed { index, period ->
-                    SegmentedButton(
-                        selected = state.usagePeriod == period.value,
-                        onClick = { onPeriodChange(period.value) },
-                        shape = SegmentedButtonDefaults.itemShape(index, periods.size),
-                        enabled = !state.refreshing,
-                    ) { Text(period.label) }
-                }
-            }
-        }
-        item {
-            Row(horizontalArrangement = Arrangement.spacedBy(10.dp), modifier = Modifier.padding(top = 4.dp)) {
-                MetricCard("请求", formatCount(stats?.totalRequests ?: 0), Modifier.weight(1f))
-                MetricCard("Tokens", formatCount(stats?.totalTokens ?: 0), Modifier.weight(1f), Amber)
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                MetricCard("请求", formatCount(state.stats?.totalRequests ?: 0), Modifier.weight(1f))
+                MetricCard("Tokens", formatCount(state.stats?.totalTokens ?: 0), Modifier.weight(1f))
             }
         }
         item {
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                MetricCard("实际消费", formatMoney(stats?.totalActualCost ?: 0.0), Modifier.weight(1f), Coral)
-                MetricCard("平均延迟", "${(stats?.averageDurationMs ?: 0.0).toInt()} ms", Modifier.weight(1f))
+                MetricCard("实际消费", formatMoney(state.stats?.totalActualCost ?: 0.0), Modifier.weight(1f))
+                MetricCard("平均总耗时", elapsedLabel(state.stats?.averageDurationMs), Modifier.weight(1f))
             }
         }
-        item { SectionHeader("最近请求", "${state.usageLogs.size} 条") }
-        if (state.usageLogs.isEmpty()) {
-            item { EmptyState("当前时段没有用量记录") }
-        } else {
-            items(state.usageLogs, key = { it.id }) { log -> UsageLogCard(log) }
+        item { TextButton(onClick = onRefresh, enabled = !state.loading) { Text("刷新记录") } }
+        state.error?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
+        if (state.loading) item { FullScreenLoading() }
+        if (admin && state.logs.isNotEmpty()) {
+            item { TextButton(onClick = { showPerformance = !showPerformance }) { Text(if (showPerformance) "收起渠道性能样本" else "查看当前页渠道性能样本") } }
+            if (showPerformance) {
+                item { Text("仅统计当前页 ${state.logs.size} 条记录；样本 TPS = 输出 Token 合计 ÷ 总耗时合计，不代表渠道实时总吞吐。", style = MaterialTheme.typography.bodySmall) }
+                items(channelPerformance(state.logs)) { sample ->
+                    Card(shape = AppCardShape, border = appCardBorder()) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text("${sample.account} · ${sample.channel}", fontWeight = FontWeight.SemiBold)
+                            Text("${sample.requests} 条 · 首字 ${elapsedLabel(sample.firstTokenMs)} · 总耗时 ${elapsedLabel(sample.durationMs)}", style = MaterialTheme.typography.bodySmall)
+                            Text("样本 TPS ${rateLabel(sample.outputRate)}")
+                        }
+                    }
+                }
+            }
+        }
+        item { SectionHeader(if (admin) "全站请求记录" else "我的请求记录", "共 ${state.total} 条") }
+        if (state.logs.isEmpty() && !state.loading && state.error == null) item { EmptyState("当前范围没有使用记录") }
+        items(state.logs, key = { it.id }) { log -> UsageLogCard(log, admin) }
+        item {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                TextButton(onClick = { onPage(state.page - 1) }, enabled = !state.loading && state.page > 1) { Text("上一页") }
+                Text("${state.page} / ${state.pages}", modifier = Modifier.padding(top = 12.dp))
+                TextButton(onClick = { onPage(state.page + 1) }, enabled = !state.loading && state.page < state.pages) { Text("下一页") }
+            }
+        }
+        item { Text("TPS 与网页版一致：输出 Token ÷ 完整请求耗时。图片、无有效耗时或未提供的数据显示 —。账号名称及渠道详情受后端权限控制。", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+    }
+}
+
+@Composable
+private fun UsageFilterForm(filters: UsageFilters, onApply: (UsageFilters) -> Unit) {
+    var user by rememberSaveable { mutableStateOf(filters.userId?.toString().orEmpty()) }
+    var account by rememberSaveable { mutableStateOf(filters.accountId?.toString().orEmpty()) }
+    var model by rememberSaveable { mutableStateOf(filters.model.orEmpty()) }
+    var error by remember { mutableStateOf<String?>(null) }
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            OutlinedTextField(user, { user = it }, Modifier.weight(1f), label = { Text("用户 ID（可选）") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
+            OutlinedTextField(account, { account = it }, Modifier.weight(1f), label = { Text("账号 ID（可选）") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true)
+        }
+        OutlinedTextField(model, { model = it }, Modifier.fillMaxWidth(), label = { Text("模型名（可选）") }, singleLine = true)
+        Row {
+            Button(onClick = {
+                if (listOf(user, account).any { it.isNotBlank() && (it.toLongOrNull()?.let { id -> id > 0 } != true) }) {
+                    error = "用户 ID 和账号 ID 需要是正整数"
+                } else {
+                    error = null
+                    onApply(UsageFilters(user.toLongOrNull(), account.toLongOrNull(), model.trim().takeIf { it.isNotEmpty() }))
+                }
+            }) { Text("应用筛选") }
+            TextButton(onClick = { user = ""; account = ""; model = ""; error = null; onApply(UsageFilters()) }) { Text("清除筛选") }
+        }
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+    }
+}
+
+@Composable
+internal fun UsageLogCard(log: UsageLog, admin: Boolean = false) {
+    Card(shape = AppCardShape, border = appCardBorder(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(log.model.ifBlank { "未知模型" }, fontWeight = FontWeight.SemiBold)
+            (log.upstreamResponseModel ?: log.upstreamModel)?.takeIf { it != log.model }?.let { Text("实际模型：$it", style = MaterialTheme.typography.bodySmall) }
+            if (admin) Text("用户：${log.user?.email?.takeIf { it.isNotBlank() } ?: log.user?.username?.takeIf { it.isNotBlank() } ?: "#${log.userId}"}")
+            Text("密钥：${log.apiKey?.name ?: "#${log.apiKeyId}"}", style = MaterialTheme.typography.bodySmall)
+            Text("账号：${log.accountLabel}", style = MaterialTheme.typography.bodySmall)
+            Text("${log.channelLabel} · 分组：${log.group?.name ?: "未提供"}", style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                TimingMetric("首字", elapsedLabel(log.firstTokenMs?.toDouble()))
+                TimingMetric("总耗时", elapsedLabel(log.durationMs?.toDouble()))
+                TimingMetric("TPS", rateLabel(log.outputRate))
+            }
+            Text("${formatCount(log.totalTokens)} Tokens · ${formatMoney(log.actualCost)} · ${if (log.stream) "Stream" else "Sync"}", style = MaterialTheme.typography.labelMedium)
+            Text(formatDate(log.createdAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
         }
     }
 }
 
 @Composable
-private fun UsageLogCard(log: UsageLog) {
-    Card(
-        shape = AppCardShape,
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = appCardBorder(),
-        elevation = CardDefaults.cardElevation(0.dp),
-    ) {
-        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(log.model.ifBlank { "未知模型" }, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(log.apiKey?.name ?: "Key #${log.apiKeyId}", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+private fun TimingMetric(label: String, value: String) {
+    Column { Text(label, style = MaterialTheme.typography.labelSmall); Text(value, style = MaterialTheme.typography.labelMedium) }
+}
+
+@Composable
+private fun UserRanking(state: AppUiState, onLoad: (String, String, Boolean) -> Unit) {
+    val ranking = state.ranking
+    val rows = remember(ranking, state.rankingMetric) { sortedUserRanking(ranking?.rows.orEmpty(), state.rankingMetric).take(50) }
+    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        item { UsageChoices(listOf("24h" to "最近 24 小时", "today" to "今天"), state.rankingPeriod, { onLoad(it, state.rankingMetric, false) }) }
+        item { UsageChoices(listOf("total_tokens" to "Tokens", "requests" to "请求数", "actual_cost" to "消费"), state.rankingMetric, { onLoad(state.rankingPeriod, it, false) }) }
+        item { TextButton(onClick = { onLoad(state.rankingPeriod, state.rankingMetric, true) }) { Text("刷新排行") } }
+        if (state.rankingLoading) item { FullScreenLoading("正在统计，已读取 ${state.rankingScanned} 条记录") }
+        state.rankingError?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
+        ranking?.let {
+            val formatter = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss").withZone(ZoneId.systemDefault())
+            item { Text("${formatter.format(it.start)} — ${formatter.format(it.end)} · ${ZoneId.systemDefault().id}", style = MaterialTheme.typography.bodySmall) }
+            item { SectionHeader("用户用量排行", "Top 50") }
+        }
+        items(rows, key = { it.userId }) { row ->
+            Card(shape = AppCardShape, border = appCardBorder()) {
+                Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                    Text("${rows.indexOf(row) + 1}. ${row.email.ifBlank { row.username.ifBlank { "用户 #${row.userId}" } }}", fontWeight = FontWeight.SemiBold)
+                    Text("${formatCount(row.totalTokens)} Tokens · ${row.requests} 次请求 · ${formatMoney(row.actualCost)}")
+                    Text("输入 ${formatCount(row.inputTokens)} · 输出 ${formatCount(row.outputTokens)} · 缓存 ${formatCount(row.cacheTokens)}", style = MaterialTheme.typography.bodySmall)
                 }
-                Text(formatMoney(log.actualCost), fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.secondary)
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(18.dp), verticalAlignment = Alignment.CenterVertically) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Icon(Icons.Outlined.Token, null, modifier = Modifier.padding(1.dp), tint = MaterialTheme.colorScheme.outline)
-                    Text(formatCount(log.totalTokens), style = MaterialTheme.typography.labelMedium)
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-                    Icon(Icons.Outlined.Schedule, null, modifier = Modifier.padding(1.dp), tint = MaterialTheme.colorScheme.outline)
-                    Text(log.durationMs?.let { "$it ms" } ?: "-", style = MaterialTheme.typography.labelMedium)
-                }
-                Text(if (log.stream) "Stream" else "Sync", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            Text(formatDate(log.createdAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
+        }
+        if (ranking != null && rows.isEmpty() && !state.rankingLoading) item { EmptyState("这个时间范围暂无用户用量") }
+        item { Text("今天使用服务端排行；最近 24 小时会分页读取记录并按精确时间统计，记录多时需要等待。可切换服务或页面取消统计。", style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun UsageChoices(options: List<Pair<String, String>>, selected: String, onSelect: (String) -> Unit) {
+    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+        options.forEachIndexed { index, (key, label) ->
+            SegmentedButton(selected = selected == key, onClick = { onSelect(key) }, shape = SegmentedButtonDefaults.itemShape(index, options.size)) { Text(label) }
         }
     }
 }
+
+internal fun elapsedLabel(value: Double?): String = if (value == null || !value.isFinite() || value < 0) "—" else String.format(Locale.ROOT, "%.2f s", value / 1000)
+internal fun rateLabel(value: Double?): String = if (value == null || !value.isFinite()) "—" else String.format(Locale.ROOT, "%.1f tok/s", value)

@@ -6,6 +6,8 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import retrofit2.Response
@@ -66,11 +68,41 @@ class ApiRepository(
         unwrapNullable(service.deleteKey(id))
     }
 
-    suspend fun usage(period: String): Pair<UsageStats, List<UsageLog>> {
+    suspend fun usage(period: String, page: Int = 1, admin: Boolean = false, filters: UsageFilters = UsageFilters()): UsagePage {
         val timezone = TimeZone.getDefault().id
-        val stats = unwrap(service.usageStats(period, timezone))
-        val logs = unwrap(service.usageLogs(timezone = timezone)).items
-        return stats to logs
+        val dates = usageDateRange(period)
+        val stats = if (admin) unwrap(service.adminUsageStats(timezone, dates.start, dates.end, filters.userId, filters.accountId, filters.model))
+            else unwrap(service.usageStats(period, timezone, dates.start, dates.end))
+        val logs = if (admin) unwrap(service.adminUsageLogs(page, timezone = timezone, startDate = dates.start, endDate = dates.end,
+            userId = filters.userId, accountId = filters.accountId, model = filters.model))
+            else unwrap(service.usageLogs(page = page, pageSize = 50, timezone = timezone, startDate = dates.start, endDate = dates.end))
+        return UsagePage(stats, logs)
+    }
+
+    suspend fun userRanking(period: String, metric: String, onProgress: (Int) -> Unit = {}): UsageRanking {
+        val window = RankingWindow.create(period)
+        val dates = window.dates
+        if (period == "today") {
+            val result = unwrap(service.userUsageRanking(dates.start, dates.end, window.zone.id, metric))
+            return UsageRanking(result.users, window.start, window.end)
+        }
+        // v0.2.19 accepts calendar dates only. Filter all pages against a fixed, exact 24-hour window.
+        val accumulator = UsageRankingAccumulator(window)
+        var page = 1
+        var scanned = 0
+        do {
+            currentCoroutineContext().ensureActive()
+            val result = unwrap(service.adminUsageLogs(page, pageSize = 1000, sortOrder = "asc",
+                timezone = window.zone.id, startDate = dates.start, endDate = dates.end))
+            if (result.items.isEmpty() && page < result.pages) throw ApiException("分页数据不完整，请重新刷新排行")
+            withContext(Dispatchers.Default) { result.items.forEach(accumulator::add) }
+            scanned += result.items.size
+            currentCoroutineContext().ensureActive()
+            onProgress(scanned)
+            if (page >= result.pages) break
+            page++
+        } while (true)
+        return accumulator.result(scanned)
     }
 
     suspend fun subscriptions(): Pair<List<UserSubscription>, List<SubscriptionProgress>> =
@@ -124,12 +156,15 @@ class ApiRepository(
         unwrapNullable(service.deleteAiAccount(id))
     }
 
-    suspend fun testAiAccount(id: Long): AiAccountTestResult {
-        val response = service.testAiAccount(id)
+    suspend fun accountModels(id: Long): List<AccountModel> = unwrap(service.accountModels(id)).filter { it.modelId.isNotBlank() }.distinctBy { it.modelId }
+
+    suspend fun testAiAccount(id: Long, modelId: String = ""): AiAccountTestResult {
+        val started = System.nanoTime()
+        val response = service.testAiAccount(id, TestAiAccountRequest(modelId.trim()))
         if (!response.isSuccessful) throw parseHttpError(response)
         val body = response.body() ?: throw ApiException("服务器返回了空响应", response.code())
         val raw = withContext(Dispatchers.IO) { body.use { it.string() } }
-        return AccountTestSseParser.parse(raw)
+        return AccountTestSseParser.parse(raw).copy(latencyMs = (System.nanoTime() - started) / 1_000_000)
     }
 
     suspend fun refreshAiAccount(id: Long): AiAccountRefreshResult {
@@ -241,12 +276,28 @@ internal fun credentialsWithReplacement(
     value: String,
 ): Map<String, Any?> = currentVisibleCredentials + (field to value.trim())
 
+fun editedAccountCredentials(account: AiAccount, baseUrl: String, apiKey: String): Map<String, Any?>? {
+    val base = baseUrl.trim()
+    if (base.isNotBlank()) {
+        val parsed = runCatching { java.net.URI(base) }.getOrNull()
+        require(parsed?.host?.isNotBlank() == true && parsed.scheme.lowercase() in setOf("https", "http")) { "Base URL 需要是完整的 HTTP 或 HTTPS 地址" }
+        require(parsed.rawUserInfo == null) { "Base URL 不能包含用户名或密码" }
+    }
+    val changes = mutableMapOf<String, Any?>()
+    if (base != (account.credentials["base_url"] as? String).orEmpty().trim()) changes["base_url"] = base
+    // Secret values are redacted by the server. Blank means keep the existing secret.
+    apiKey.trim().takeIf { it.isNotEmpty() }?.let { changes["api_key"] = it }
+    return changes.takeIf { it.isNotEmpty() }?.let { account.credentials + it }
+}
+
 internal object AccountTestSseParser {
     private val gson = Gson()
 
     fun parse(raw: String): AiAccountTestResult {
         var completed = false
+        var succeeded = false
         var error: String? = null
+        var model: String? = null
         raw.lineSequence().forEach { line ->
             val payload = line.trimStart().takeIf { it.startsWith("data:") }
                 ?.removePrefix("data:")
@@ -255,13 +306,15 @@ internal object AccountTestSseParser {
                 ?: return@forEach
             val event = runCatching { gson.fromJson(payload, JsonObject::class.java) }.getOrNull() ?: return@forEach
             when (event["type"]?.asString) {
+                "test_start" -> model = event["model"]?.takeUnless { it.isJsonNull }?.asString
                 "error" -> error = event["error"]?.asString ?: "连接测试失败"
-                "test_complete" -> completed = event["success"]?.asBoolean != false
+                "test_complete" -> { completed = true; succeeded = event["success"]?.asBoolean == true }
             }
         }
         return when {
-            error != null -> AiAccountTestResult(success = false, message = error.orEmpty())
-            completed -> AiAccountTestResult(success = true, message = "连接测试通过")
+            error != null -> AiAccountTestResult(success = false, message = error.orEmpty(), model = model)
+            completed && succeeded -> AiAccountTestResult(success = true, message = "连接测试通过", model = model)
+            completed -> AiAccountTestResult(success = false, message = "连接测试失败", model = model)
             else -> AiAccountTestResult(success = false, message = "连接测试未返回完成状态")
         }
     }

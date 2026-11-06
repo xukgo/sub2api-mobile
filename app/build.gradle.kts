@@ -19,8 +19,8 @@ android {
         applicationId = "com.sub2api.mobile"
         minSdk = 33
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.6.1"
+        versionCode = 11
+        versionName = "1.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

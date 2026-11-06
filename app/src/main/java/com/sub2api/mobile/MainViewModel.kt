@@ -20,6 +20,9 @@ import com.sub2api.mobile.data.PublicSettings
 import com.sub2api.mobile.data.RedeemHistory
 import com.sub2api.mobile.data.ServerUrl
 import com.sub2api.mobile.data.ServerSummary
+import com.sub2api.mobile.data.AccountModel
+import com.sub2api.mobile.data.UsageFilters
+import com.sub2api.mobile.data.UsageRanking
 import com.sub2api.mobile.data.ApiRepository
 import com.sub2api.mobile.data.SubscriptionProgress
 import com.sub2api.mobile.data.SubscriptionSummary
@@ -60,6 +63,18 @@ data class UpdateDownloadState(
     val error: String? = null,
 )
 
+data class UsageViewState(
+    val stats: UsageStats? = null,
+    val logs: List<UsageLog> = emptyList(),
+    val period: String = "today",
+    val filters: UsageFilters = UsageFilters(),
+    val page: Int = 1,
+    val pages: Int = 1,
+    val total: Int = 0,
+    val loading: Boolean = false,
+    val error: String? = null,
+)
+
 data class AppUiState(
     val phase: AppPhase = AppPhase.CHECKING,
     val loading: Boolean = false,
@@ -79,9 +94,18 @@ data class AppUiState(
     val subscriptionSummary: SubscriptionSummary? = null,
     val keys: List<ApiKey> = emptyList(),
     val groups: List<Group> = emptyList(),
-    val usageStats: UsageStats? = null,
-    val usageLogs: List<UsageLog> = emptyList(),
-    val usagePeriod: String = "today",
+    val personalUsage: UsageViewState = UsageViewState(),
+    val adminUsage: UsageViewState = UsageViewState(),
+    val ranking: UsageRanking? = null,
+    val rankingPeriod: String = "24h",
+    val rankingMetric: String = "total_tokens",
+    val rankingLoading: Boolean = false,
+    val rankingScanned: Int = 0,
+    val rankingError: String? = null,
+    val accountModels: Map<Long, List<AccountModel>> = emptyMap(),
+    val accountModelsLoading: Set<Long> = emptySet(),
+    val accountModelErrors: Map<Long, String> = emptyMap(),
+    val accountTestResults: Map<Long, AiAccountTestResult> = emptyMap(),
     val subscriptions: List<UserSubscription> = emptyList(),
     val subscriptionProgress: List<SubscriptionProgress> = emptyList(),
     val redeemHistory: List<RedeemHistory> = emptyList(),
@@ -111,6 +135,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private val updateRepository = app.updateRepository
     private val sessionStore = app.sessionStore
     private var quotaLoadGeneration = 0L
+    private var personalUsageJob: Job? = null
+    private var adminUsageJob: Job? = null
+    private var rankingJob: Job? = null
+    private val accountModelJobs = mutableMapOf<Long, Job>()
     private var sessionJob = SupervisorJob(viewModelScope.coroutineContext[Job])
     private var sessionScope = CoroutineScope(viewModelScope.coroutineContext + sessionJob)
     private var observedSession = sessionStore.state.value
@@ -305,6 +333,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun restartSession() {
         observedSession = sessionStore.state.value
         sessionJob.cancel()
+        accountModelJobs.clear()
         sessionJob = SupervisorJob(viewModelScope.coroutineContext[Job])
         sessionScope = CoroutineScope(viewModelScope.coroutineContext + sessionJob)
         quotaLoadGeneration++
@@ -387,7 +416,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             return@launchSession
         }
 
-        if (user.role != "admin") TotalQuotaWidget.publishAdminRequired(app)
+        if (user.role != "admin") {
+            adminUsageJob?.cancel()
+            rankingJob?.cancel()
+            accountModelJobs.values.forEach { it.cancel() }
+            accountModelJobs.clear()
+            TotalQuotaWidget.publishAdminRequired(app)
+        }
 
         var aiAccountsError: Throwable? = null
         coroutineScope {
@@ -395,7 +430,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val summary = async { runSessionCatching { repository.subscriptionSummary() } }
             val keys = async { runSessionCatching { repository.keys() } }
             val groups = async { runSessionCatching { repository.groups() } }
-            val usage = async { runSessionCatching { repository.usage(_uiState.value.usagePeriod) } }
             val subscriptions = async { runSessionCatching { repository.subscriptions() } }
             val history = async { runSessionCatching { repository.redeemHistory() } }
             val aiAccounts = async {
@@ -411,7 +445,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val summaryResult = summary.await()
             val keysResult = keys.await()
             val groupsResult = groups.await()
-            val usageResult = usage.await()
             val subscriptionsResult = subscriptions.await()
             val historyResult = history.await()
             val aiAccountsResult = aiAccounts.await()
@@ -427,8 +460,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     subscriptionSummary = summaryResult.getOrNull() ?: state.subscriptionSummary,
                     keys = keysResult.getOrNull() ?: state.keys,
                     groups = groupsResult.getOrNull() ?: state.groups,
-                    usageStats = usageResult.getOrNull()?.first ?: state.usageStats,
-                    usageLogs = usageResult.getOrNull()?.second ?: state.usageLogs,
+                    adminUsage = if (user.role == "admin") state.adminUsage else UsageViewState(),
+                    ranking = if (user.role == "admin") state.ranking else null,
+                    rankingLoading = user.role == "admin" && state.rankingLoading,
+                    rankingError = if (user.role == "admin") state.rankingError else null,
+                    accountModels = if (user.role == "admin") state.accountModels else emptyMap(),
+                    accountModelsLoading = if (user.role == "admin") state.accountModelsLoading else emptySet(),
+                    accountModelErrors = if (user.role == "admin") state.accountModelErrors else emptyMap(),
+                    accountTestResults = if (user.role == "admin") state.accountTestResults else emptyMap(),
                     subscriptions = subscriptionsResult.getOrNull()?.first ?: state.subscriptions,
                     subscriptionProgress = subscriptionsResult.getOrNull()?.second ?: state.subscriptionProgress,
                     redeemHistory = historyResult.getOrNull() ?: state.redeemHistory,
@@ -490,11 +529,64 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .onFailure { showMessage(it.userMessage()) }
     }
 
-    fun setUsagePeriod(period: String) = launchSession {
-        _uiState.update { it.copy(usagePeriod = period, refreshing = true) }
-        runSessionCatching { repository.usage(period) }
-            .onSuccess { (stats, logs) -> _uiState.update { it.copy(usageStats = stats, usageLogs = logs, refreshing = false) } }
-            .onFailure { error -> _uiState.update { it.copy(refreshing = false, message = error.userMessage()) } }
+    fun loadUsage(
+        admin: Boolean = false,
+        period: String = (if (admin) _uiState.value.adminUsage else _uiState.value.personalUsage).period,
+        page: Int = 1,
+        filters: UsageFilters = (if (admin) _uiState.value.adminUsage else _uiState.value.personalUsage).filters,
+    ) {
+        if (admin && _uiState.value.user?.role != "admin") return
+        if (admin) adminUsageJob?.cancel() else personalUsageJob?.cancel()
+        fun updateUsage(transform: (UsageViewState) -> UsageViewState) = _uiState.update {
+            if (admin) it.copy(adminUsage = transform(it.adminUsage)) else it.copy(personalUsage = transform(it.personalUsage))
+        }
+        updateUsage { previous ->
+            val changed = previous.period != period || previous.filters != filters
+            previous.copy(period = period, filters = filters, page = page,
+                logs = emptyList(), stats = if (changed) null else previous.stats, loading = true, error = null)
+        }
+        val useAdminEndpoint = _uiState.value.user?.role == "admin"
+        if (!admin && useAdminEndpoint && (_uiState.value.user?.id ?: 0) <= 0) {
+            updateUsage { it.copy(loading = false, stats = null, error = "无法确定当前用户，请刷新账户信息") }
+            return
+        }
+        val effectiveFilters = if (!admin && useAdminEndpoint) UsageFilters(userId = _uiState.value.user!!.id) else filters
+        val job = launchSession {
+            runSessionCatching { repository.usage(period, page, admin = useAdminEndpoint, filters = effectiveFilters) }
+                .onSuccess { result -> updateUsage { it.copy(stats = result.stats, logs = result.records.items,
+                    page = result.records.page, pages = result.records.pages.coerceAtLeast(1), total = result.records.total,
+                    loading = false) } }
+                .onFailure { error -> updateUsage { it.copy(loading = false, error = error.userMessage()) } }
+        }
+        if (admin) adminUsageJob = job else personalUsageJob = job
+    }
+
+    fun setUsagePeriod(period: String) = loadUsage(period = period)
+
+    fun loadRanking(
+        period: String = _uiState.value.rankingPeriod,
+        metric: String = _uiState.value.rankingMetric,
+        force: Boolean = false,
+    ) {
+        if (_uiState.value.user?.role != "admin") return
+        if (!force && period == "24h" && _uiState.value.rankingPeriod == period && _uiState.value.ranking != null && !_uiState.value.rankingLoading) {
+            _uiState.update { it.copy(rankingMetric = metric) }
+            return
+        }
+        rankingJob?.cancel()
+        _uiState.update { it.copy(rankingPeriod = period, rankingMetric = metric, ranking = null,
+            rankingLoading = true, rankingScanned = 0, rankingError = null) }
+        rankingJob = launchSession {
+            runSessionCatching {
+                repository.userRanking(period, metric) { count -> _uiState.update { it.copy(rankingScanned = count) } }
+            }.onSuccess { result -> _uiState.update { it.copy(ranking = result, rankingLoading = false) } }
+                .onFailure { error -> _uiState.update { it.copy(rankingLoading = false, rankingError = error.userMessage()) } }
+        }
+    }
+
+    fun cancelRanking() {
+        rankingJob?.cancel()
+        _uiState.update { it.copy(rankingLoading = false) }
     }
 
     fun redeem(code: String, onDone: () -> Unit) = launchSession {
@@ -671,19 +763,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }.onFailure { error -> _uiState.update { it.copy(accountsLoading = false, message = error.userMessage()) } }
     }
 
-    fun testAiAccount(account: AiAccount) = launchSession {
+    fun loadAccountModels(account: AiAccount) {
+        if (_uiState.value.user?.role != "admin" || account.id in _uiState.value.accountModelsLoading) return
+        _uiState.update { it.copy(accountModelsLoading = it.accountModelsLoading + account.id,
+            accountModelErrors = it.accountModelErrors - account.id) }
+        accountModelJobs[account.id] = launchSession {
+            runSessionCatching { repository.accountModels(account.id) }
+                .onSuccess { models -> _uiState.update { it.copy(accountModels = it.accountModels + (account.id to models),
+                    accountModelsLoading = it.accountModelsLoading - account.id) } }
+                .onFailure { error -> _uiState.update { it.copy(accountModelErrors = it.accountModelErrors + (account.id to error.userMessage()),
+                    accountModelsLoading = it.accountModelsLoading - account.id) } }
+        }
+    }
+
+    fun testAiAccount(account: AiAccount, modelId: String) = launchSession {
         if (_uiState.value.user?.role != "admin") return@launchSession
-        _uiState.update { it.copy(accountsLoading = true) }
-        runSessionCatching { repository.testAiAccount(account.id) }
+        _uiState.update { it.copy(accountsLoading = true, accountTestResults = it.accountTestResults - account.id) }
+        runSessionCatching { repository.testAiAccount(account.id, modelId) }
             .onSuccess { result ->
                 val latency = result.latencyMs?.let { " · ${it}ms" }.orEmpty()
                 _uiState.update {
-                    it.copy(accountsLoading = false, message = (if (result.success) "连接测试通过" else result.message.ifBlank { "连接测试失败" }) + latency)
+                    it.copy(accountsLoading = false, accountTestResults = it.accountTestResults + (account.id to result),
+                        message = (if (result.success) "连接测试通过" else result.message.ifBlank { "连接测试失败" }) + latency)
                 }
             }
             .onFailure { error ->
                 Log.e("Sub2API", "AI account connection test failed", error)
-                _uiState.update { it.copy(accountsLoading = false, message = error.userMessage()) }
+                _uiState.update { it.copy(accountsLoading = false, message = error.userMessage(),
+                    accountTestResults = it.accountTestResults + (account.id to AiAccountTestResult(message = error.userMessage(), model = modelId))) }
             }
     }
 
@@ -740,12 +847,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private fun replaceAiAccount(account: AiAccount, message: String? = null) {
+        accountModelJobs.remove(account.id)?.cancel()
         _uiState.update { state ->
             state.copy(
                 aiAccounts = state.aiAccounts.map { if (it.id == account.id) account else it },
                 allAiAccounts = state.allAiAccounts.map { if (it.id == account.id) account else it },
                 accountsLoading = false,
                 message = message ?: state.message,
+                accountModels = state.accountModels - account.id,
+                accountModelsLoading = state.accountModelsLoading - account.id,
+                accountModelErrors = state.accountModelErrors - account.id,
+                accountTestResults = state.accountTestResults - account.id,
             )
         }
     }

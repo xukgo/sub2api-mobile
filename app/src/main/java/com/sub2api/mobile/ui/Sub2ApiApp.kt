@@ -56,12 +56,14 @@ import com.sub2api.mobile.ui.screens.ServerSetupScreen
 import com.sub2api.mobile.ui.screens.SubscriptionsScreen
 import com.sub2api.mobile.ui.screens.TwoFactorScreen
 import com.sub2api.mobile.ui.screens.UsageScreen
+import com.sub2api.mobile.ui.screens.AdminUsageScreen
 
 internal enum class MainTab(val label: String, val title: String, val icon: AppIcon) {
     DASHBOARD("首页", "概览", Icons.Outlined.Dashboard),
     ACCOUNTS("AI 账号", "AI 平台账号", Icons.Outlined.Memory),
     KEYS("密钥", "API Keys", Icons.Outlined.Key),
-    USAGE("用量", "用量记录", Icons.Outlined.BarChart),
+    USAGE("用量", "我的用量记录", Icons.Outlined.BarChart),
+    ALL_USAGE("所有用量", "所有用量", Icons.Outlined.BarChart),
     SUBSCRIPTIONS("订阅", "订阅与兑换", Icons.Outlined.CreditCard),
     CHANNEL_STATUS("渠道状态", "渠道状态", Icons.Outlined.NetworkCheck),
     PROFILE("我的", "账户", Icons.Outlined.AccountCircle),
@@ -69,7 +71,7 @@ internal enum class MainTab(val label: String, val title: String, val icon: AppI
 
 internal fun mainTabsForRole(role: String?): List<MainTab> =
     if (role == "admin") {
-        listOf(MainTab.DASHBOARD, MainTab.ACCOUNTS, MainTab.KEYS, MainTab.USAGE, MainTab.PROFILE)
+        listOf(MainTab.DASHBOARD, MainTab.ACCOUNTS, MainTab.USAGE, MainTab.ALL_USAGE, MainTab.PROFILE)
     } else {
         listOf(MainTab.DASHBOARD, MainTab.KEYS, MainTab.USAGE, MainTab.SUBSCRIPTIONS, MainTab.PROFILE)
     }
@@ -151,9 +153,9 @@ private fun MainShell(state: AppUiState, viewModel: MainViewModel, onOpenUrl: (S
     var selected by rememberSaveable { mutableStateOf(MainTab.DASHBOARD) }
     val isAdmin = state.user?.role == "admin"
     val tabs = mainTabsForRole(state.user?.role)
-    val isProfileChild = selected == MainTab.CHANNEL_STATUS || (isAdmin && selected == MainTab.SUBSCRIPTIONS)
+    val isProfileChild = selected == MainTab.CHANNEL_STATUS || (isAdmin && selected in setOf(MainTab.SUBSCRIPTIONS, MainTab.KEYS))
     LaunchedEffect(isAdmin) {
-        if (selected == MainTab.ACCOUNTS && !isAdmin) selected = MainTab.DASHBOARD
+        if (selected in setOf(MainTab.ACCOUNTS, MainTab.ALL_USAGE) && !isAdmin) selected = MainTab.DASHBOARD
     }
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -178,7 +180,12 @@ private fun MainShell(state: AppUiState, viewModel: MainViewModel, onOpenUrl: (S
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
                 actions = {
                     when (selected) {
-                        MainTab.PROFILE -> Unit
+                        MainTab.PROFILE, MainTab.ALL_USAGE -> Unit
+                        MainTab.USAGE -> {
+                            IconButton(onClick = { viewModel.loadUsage() }, enabled = !state.personalUsage.loading) {
+                                Icon(Icons.Outlined.Refresh, "刷新个人用量")
+                            }
+                        }
                         MainTab.CHANNEL_STATUS -> {
                             IconButton(
                                 onClick = viewModel::refreshChannelMonitors,
@@ -237,6 +244,7 @@ private fun MainShell(state: AppUiState, viewModel: MainViewModel, onOpenUrl: (S
                         onUpdate = viewModel::updateAiAccount,
                         onCredential = viewModel::updateAiCredential,
                         onTest = viewModel::testAiAccount,
+                        onLoadModels = viewModel::loadAccountModels,
                         onRefreshCredential = viewModel::refreshAiCredential,
                         onClearError = viewModel::clearAiAccountError,
                         onToggle = viewModel::toggleAiAccount,
@@ -252,7 +260,12 @@ private fun MainShell(state: AppUiState, viewModel: MainViewModel, onOpenUrl: (S
                     onToggle = viewModel::toggleKey,
                     onDelete = viewModel::deleteKey,
                 )
-                MainTab.USAGE -> UsageScreen(state, viewModel::setUsagePeriod)
+                MainTab.USAGE -> UsageScreen(state, viewModel::setUsagePeriod,
+                    onRefresh = { viewModel.loadUsage() }, onPageChange = { viewModel.loadUsage(page = it) })
+                MainTab.ALL_USAGE -> AdminUsageScreen(state,
+                    onLoad = { period, page, filters -> viewModel.loadUsage(true, period, page, filters) },
+                    onRanking = { period, metric, force -> viewModel.loadRanking(period, metric, force) },
+                    onCancelRanking = viewModel::cancelRanking)
                 MainTab.SUBSCRIPTIONS -> SubscriptionsScreen(state, viewModel::redeem)
                 MainTab.CHANNEL_STATUS -> ChannelStatusScreen(
                     state = state,
@@ -265,6 +278,7 @@ private fun MainShell(state: AppUiState, viewModel: MainViewModel, onOpenUrl: (S
                     onLogout = viewModel::logout,
                     onChangeServer = viewModel::changeServer,
                     onOpenUrl = onOpenUrl,
+                    onOpenKeys = if (isAdmin) ({ selected = MainTab.KEYS }) else null,
                     onOpenSubscriptions = if (isAdmin) ({ selected = MainTab.SUBSCRIPTIONS }) else null,
                     onOpenChannelStatus = { selected = MainTab.CHANNEL_STATUS },
                     onCheckForUpdate = viewModel::checkForUpdate,

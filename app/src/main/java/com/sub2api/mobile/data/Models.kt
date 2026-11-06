@@ -169,7 +169,14 @@ data class AiAccountTestResult(
     val success: Boolean = false,
     val message: String = "",
     val latencyMs: Long? = null,
+    val model: String? = null,
 )
+
+data class AccountModel(val id: String = "", val name: String = "", val displayName: String = "") {
+    val modelId: String get() = id.ifBlank { name.removePrefix("models/") }
+}
+
+data class TestAiAccountRequest(val modelId: String = "", val prompt: String = "Hi")
 
 data class AiUsageProgress(
     val utilization: Double = 0.0,
@@ -356,6 +363,15 @@ data class UsageStats(
 
 data class UsageLog(
     val id: Long = 0,
+    val userId: Long = 0,
+    val accountId: Long? = null,
+    val channelId: Long? = null,
+    val user: User? = null,
+    val account: UsageAccountSummary? = null,
+    val upstreamModel: String? = null,
+    val upstreamResponseModel: String? = null,
+    val imageCount: Int = 0,
+    val imageOutputTokens: Long = 0,
     val apiKeyId: Long = 0,
     val requestId: String = "",
     val model: String = "",

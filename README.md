@@ -10,10 +10,12 @@
 - 系统 Keystore 加密保存各服务会话，安全存储失败时停止保存并提示错误；会话文件排除系统备份及设备迁移
 - 用户概览：余额、并发、今日请求、Token、消费和订阅摘要
 - API Key：列表、创建、复制、启停和删除
-- 管理员 AI 平台账号：Claude/OpenAI/Gemini/Antigravity/Grok 账号、Cookie/Token、分组、连接测试、凭据刷新与剩余额度汇总
+- 管理员 AI 平台账号：Claude/OpenAI/Gemini/Antigravity/Grok 账号、Cookie/Token、分组、Base URL/API Key 编辑、选模型连接测试、凭据刷新与剩余额度汇总
 - 桌面小部件：显示当前服务全部 AI 账号的总剩余额度与服务名称，支持手动刷新与每 30 分钟自动刷新
 - 渠道状态：管理员与普通用户均可查看整体健康度、可用率、延迟、近期检测记录和各模型 7/15/30 天详情
-- 用量：今日/本周/本月统计与最近请求明细
+- 个人用量：今日/近 7 天/近 30 天分页记录，展示首字耗时、总耗时、TPS、账号/渠道、模型与费用
+- 管理员所有用量：全站分页记录、用户/账号/模型筛选、全部历史记录与当前页渠道性能样本
+- 管理员用户排行：今天与精确滚动最近 24 小时，支持按 Tokens、请求数和消费排序
 - 订阅：日/周/月额度进度、有效期、兑换码与兑换记录
 - 账户：修改用户名、网页控制台、支付入口、文档、退出和切换服务器
 - 更新：自动检查 GitHub 最新正式版本，支持应用内下载进度、SHA-256 校验与系统安装
@@ -21,7 +23,17 @@
 - 界面：统一浅色与深色主题、排版、导航、表单、卡片和状态信息层级
 - Android 13（API 33）及以上，深色模式、手机/平板自适应布局、HTTP 内网部署支持
 
-移动端仅加入了管理员常用的 AI 平台账号与 Cookie 管理，以及面向所有用户的只读渠道状态；网站用户、渠道配置、代理和系统运维仍使用上游 Web 管理后台。
+管理员底部入口为：首页、AI 账号、个人用量、所有用量、我的。管理员的 API 密钥和订阅入口在“我的”中；普通用户不会显示“所有用量”或“AI 账号”。网站用户管理、渠道配置、代理和系统运维仍使用上游 Web 管理后台。
+
+管理员用量与账号接口按官方 Sub2API **v0.2.19** 对接：
+
+- 记录的 TPS 与网页版相同，为输出 Token 数除以完整请求耗时（含首字等待），不使用扣除首字时间后的生成速度。图片等非文本请求或缺少有效耗时时显示 `—`。
+- 普通用户接口会隐藏账号名称、渠道等管理员信息。个人用量显示后端获准返回的账号 ID、分组，未提供的字段明确标注；管理员查看自己的用量时使用按自身用户 ID 过滤的管理员接口。
+- “所有用量”的渠道性能汇总仅来自当前页记录，是带样本数的比较数据，不是全站实时网络吞吐。
+- “今天”排行使用 `/admin/dashboard/user-breakdown`；v0.2.19 的该接口只接受日期，因此“最近 24 小时”会分页读取记录、去重并按固定的精确时间窗口统计。页面显示进度与统计区间，切换服务或离开页面会取消未完成的统计；统计失败不会显示部分结果。
+- 编辑账号时原 API Key 不会回显，留空保留已有密钥。修改 Base URL 或输入新密钥时保留其他配置；可用模型通过 `/admin/accounts/{id}/models` 获取，模型测试请求包含 `model_id`。
+
+应用版本：**1.7.0**（versionCode 11）。
 
 ## 多服务使用
 
@@ -69,7 +81,7 @@ Windows：
 
 工作流位于 [`.github/workflows/android.yml`](.github/workflows/android.yml)。提交并推送代码后，分支推送和 Pull Request 都会触发 `Android CI`；也可以在默认分支已有该工作流后，从 Actions 页面点击 **Run workflow** 手动触发。
 
-流程使用 Ubuntu 24.04、JDK 17、Android SDK 35 和仓库中的 Gradle Wrapper。`setup-android` 会显式初始化 SDK 命令行工具、配置 PATH，并安装平台 35 和 Build Tools 34.0.0，不依赖 runner 预先提供 `sdkmanager`。随后运行全部 JVM 单元测试与 Android Lint，成功后编译调试 APK。Gradle 最多使用 4 个 worker，并缓存依赖；同一分支的新提交会取消旧构建。
+流程使用 Ubuntu 24.04、JDK 17、Android SDK 35 和仓库中的 Gradle Wrapper。`setup-android` 会显式初始化 SDK 命令行工具、配置 PATH，并安装平台 35 和 Build Tools 34.0.0，不依赖 runner 预先提供 `sdkmanager`。随后运行全部 JVM 单元测试与 Android Lint，成功后编译调试 APK 和设备测试 APK（不运行设备测试）。Gradle 最多使用 4 个 worker，并缓存依赖；同一分支的新提交会取消旧构建。
 
 在仓库 **Actions → Android CI → 对应运行记录 → Artifacts** 下载：
 
@@ -80,16 +92,18 @@ Windows：
 
 ## 接口基线
 
-数据模型与路由基于 sub2api `main` 分支，核心接口为：
+数据模型与路由对齐官方 sub2api `v0.2.19`，核心接口为：
 
 - `/api/v1/settings/public`
 - `/api/v1/auth/login`、`/auth/login/2fa`、`/auth/refresh`
 - `/api/v1/auth/me`、`/user`
 - `/api/v1/keys`、`/groups/available`
 - `/api/v1/usage`、`/usage/stats`、`/usage/dashboard/stats`
+- `/api/v1/admin/usage`、`/admin/usage/stats`、`/admin/dashboard/user-breakdown`
 - `/api/v1/subscriptions`、`/subscriptions/progress`
 - `/api/v1/redeem`、`/redeem/history`
 - `/api/v1/channel-monitors`、`/channel-monitors/{id}/status`
 - `/api/v1/admin/accounts`、`/admin/accounts/{id}/test`、`/admin/accounts/{id}/refresh`
 - `/api/v1/admin/accounts/{id}/usage`
+- `/api/v1/admin/accounts/{id}/models`；测试接口接收包含 `model_id` 的 JSON
 - `/api/v1/admin/accounts/cookie-auth`、`/admin/accounts/{id}/apply-oauth-credentials`

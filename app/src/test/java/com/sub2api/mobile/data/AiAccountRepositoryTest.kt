@@ -46,4 +46,19 @@ class AiAccountRepositoryTest {
         assertFalse(result.success)
         assertEquals("invalid token", result.message)
     }
+
+    @Test
+    fun completedButFailedTestIsReportedAsFailure() {
+        val result = AccountTestSseParser.parse("data: {\"type\":\"test_start\",\"model\":\"custom\"}\n\ndata: {\"type\":\"test_complete\",\"success\":false}\n")
+        assertFalse(result.success)
+        assertEquals("连接测试失败", result.message)
+        assertEquals("custom", result.model)
+    }
+    @Test
+    fun completionWithoutExplicitSuccessDoesNotReportFalsePositive() {
+        // The server omits success=false because TestEvent uses json:"success,omitempty".
+        val result = AccountTestSseParser.parse("data: {\"type\":\"test_complete\"}\n")
+        assertFalse(result.success)
+    }
+
 }

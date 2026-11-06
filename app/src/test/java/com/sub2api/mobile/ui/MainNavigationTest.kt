@@ -11,10 +11,11 @@ class MainNavigationTest {
         val tabs = mainTabsForRole("admin")
 
         assertEquals(
-            listOf(MainTab.DASHBOARD, MainTab.ACCOUNTS, MainTab.KEYS, MainTab.USAGE, MainTab.PROFILE),
+            listOf(MainTab.DASHBOARD, MainTab.ACCOUNTS, MainTab.USAGE, MainTab.ALL_USAGE, MainTab.PROFILE),
             tabs,
         )
         assertTrue(MainTab.ACCOUNTS in tabs)
+        assertTrue(MainTab.ALL_USAGE in tabs)
         assertFalse(MainTab.SUBSCRIPTIONS in tabs)
         assertFalse(MainTab.CHANNEL_STATUS in tabs)
     }
@@ -28,6 +29,7 @@ class MainNavigationTest {
             tabs,
         )
         assertFalse(MainTab.ACCOUNTS in tabs)
+        assertFalse(MainTab.ALL_USAGE in tabs)
         assertFalse(MainTab.CHANNEL_STATUS in tabs)
     }
 }

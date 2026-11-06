@@ -109,7 +109,7 @@ class UiVisualRegressionTest {
                 onCreate = { _, _, _, _ -> },
                 onUpdate = { _, _, _ -> },
                 onCredential = { _, _, _, _, _ -> },
-                onTest = {},
+                onTest = { _, _ -> },
                 onRefreshCredential = {},
                 onClearError = {},
                 onToggle = {},

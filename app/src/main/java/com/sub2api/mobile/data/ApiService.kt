@@ -65,6 +65,8 @@ interface ApiService {
     suspend fun usageStats(
         @Query("period") period: String,
         @Query("timezone") timezone: String,
+        @Query("start_date") startDate: String? = null,
+        @Query("end_date") endDate: String? = null,
     ): Response<ApiEnvelope<UsageStats>>
 
     @GET("usage")
@@ -74,7 +76,44 @@ interface ApiService {
         @Query("sort_by") sortBy: String = "created_at",
         @Query("sort_order") sortOrder: String = "desc",
         @Query("timezone") timezone: String,
+        @Query("start_date") startDate: String? = null,
+        @Query("end_date") endDate: String? = null,
     ): Response<ApiEnvelope<Paginated<UsageLog>>>
+
+    @GET("admin/usage")
+    suspend fun adminUsageLogs(
+        @Query("page") page: Int,
+        @Query("page_size") pageSize: Int = 50,
+        @Query("sort_by") sortBy: String = "created_at",
+        @Query("sort_order") sortOrder: String = "desc",
+        @Query("timezone") timezone: String,
+        @Query("start_date") startDate: String,
+        @Query("end_date") endDate: String,
+        @Query("user_id") userId: Long? = null,
+        @Query("account_id") accountId: Long? = null,
+        @Query("model") model: String? = null,
+        @Query("exact_total") exactTotal: Boolean = true,
+    ): Response<ApiEnvelope<Paginated<UsageLog>>>
+
+    @GET("admin/usage/stats")
+    suspend fun adminUsageStats(
+        @Query("timezone") timezone: String,
+        @Query("start_date") startDate: String,
+        @Query("end_date") endDate: String,
+        @Query("user_id") userId: Long? = null,
+        @Query("account_id") accountId: Long? = null,
+        @Query("model") model: String? = null,
+        @Query("nocache") noCache: Int = 1,
+    ): Response<ApiEnvelope<UsageStats>>
+
+    @GET("admin/dashboard/user-breakdown")
+    suspend fun userUsageRanking(
+        @Query("start_date") startDate: String,
+        @Query("end_date") endDate: String,
+        @Query("timezone") timezone: String,
+        @Query("sort_by") sortBy: String,
+        @Query("limit") limit: Int = 50,
+    ): Response<ApiEnvelope<UserUsageRankingResponse>>
 
     @GET("subscriptions")
     suspend fun subscriptions(): Response<ApiEnvelope<List<UserSubscription>>>
@@ -121,7 +160,10 @@ interface ApiService {
 
     @Streaming
     @POST("admin/accounts/{id}/test")
-    suspend fun testAiAccount(@Path("id") id: Long): Response<ResponseBody>
+    suspend fun testAiAccount(@Path("id") id: Long, @Body request: TestAiAccountRequest): Response<ResponseBody>
+
+    @GET("admin/accounts/{id}/models")
+    suspend fun accountModels(@Path("id") id: Long): Response<ApiEnvelope<List<AccountModel>>>
 
     @POST("admin/accounts/{id}/refresh")
     suspend fun refreshAiAccount(@Path("id") id: Long): Response<ApiEnvelope<JsonElement>>

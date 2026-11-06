@@ -56,6 +56,7 @@ fun ProfileScreen(
     onOpenSubscriptions: (() -> Unit)? = null,
     onOpenChannelStatus: () -> Unit,
     onCheckForUpdate: () -> Unit,
+    onOpenKeys: (() -> Unit)? = null,
 ) {
     val user = state.user ?: return
     var showEdit by rememberSaveable { mutableStateOf(false) }
@@ -104,6 +105,7 @@ fun ProfileScreen(
             Surface(modifier = Modifier.fillMaxWidth(), shape = AppCardShape, color = MaterialTheme.colorScheme.surface, border = appCardBorder()) {
                 Column {
                     ActionRow(Icons.Outlined.NetworkCheck, "渠道状态", onClick = onOpenChannelStatus)
+                    onOpenKeys?.let { ActionRow(Icons.Outlined.Key, "API 密钥", onClick = it) }
                     onOpenSubscriptions?.let { ActionRow(Icons.Outlined.CreditCard, "订阅与兑换", onClick = it) }
                     ActionRow(Icons.Outlined.Language, "打开网页版") { onOpenUrl(webRoot) }
                     if (state.settings?.paymentEnabled == true) ActionRow(Icons.Outlined.Payments, "充值与订单") { onOpenUrl("$webRoot/payment") }

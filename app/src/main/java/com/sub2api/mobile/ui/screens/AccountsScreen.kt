@@ -47,6 +47,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -65,6 +66,8 @@ import com.sub2api.mobile.data.AiQuotaMetric
 import com.sub2api.mobile.data.CreateAiAccountRequest
 import com.sub2api.mobile.data.Group
 import com.sub2api.mobile.data.UpdateAiAccountRequest
+import com.sub2api.mobile.data.editedAccountCredentials
+import com.sub2api.mobile.ui.components.AccountTestDialog
 import com.sub2api.mobile.data.summarizeAiQuotas
 import com.sub2api.mobile.ui.components.AppCardShape
 import com.sub2api.mobile.ui.components.ContinuousLinearProgressIndicator
@@ -116,7 +119,8 @@ fun AccountsScreen(
     onCreate: (CreateAiAccountRequest, String, Boolean, () -> Unit) -> Unit,
     onUpdate: (AiAccount, UpdateAiAccountRequest, () -> Unit) -> Unit,
     onCredential: (AiAccount, String, String, Boolean, () -> Unit) -> Unit,
-    onTest: (AiAccount) -> Unit,
+    onTest: (AiAccount, String) -> Unit,
+    onLoadModels: (AiAccount) -> Unit = {},
     onRefreshCredential: (AiAccount) -> Unit,
     onClearError: (AiAccount) -> Unit,
     onToggle: (AiAccount) -> Unit,
@@ -129,6 +133,7 @@ fun AccountsScreen(
     var showEditor by rememberSaveable { mutableStateOf(false) }
     var credentialAccount by remember { mutableStateOf<AiAccount?>(null) }
     var deleteAccount by remember { mutableStateOf<AiAccount?>(null) }
+    var testingAccount by remember { mutableStateOf<AiAccount?>(null) }
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
@@ -192,7 +197,7 @@ fun AccountsScreen(
                             quota = state.aiAccountQuotas[account.id],
                             quotaLoading = state.quotaLoading && account.id !in state.aiAccountQuotas,
                             busy = state.accountsLoading,
-                            onTest = { onTest(account) },
+                            onTest = { testingAccount = account },
                             onCredential = { credentialAccount = account },
                             onRefresh = { onRefreshCredential(account) },
                             onEdit = { editorAccount = account; showEditor = true },
@@ -213,6 +218,10 @@ fun AccountsScreen(
         }
     }
 
+    testingAccount?.let { account ->
+        AccountTestDialog(account, state, onLoadModels,
+            onRun = { model -> onTest(account, model) }, onDismiss = { testingAccount = null })
+    }
     if (showEditor) {
         AccountEditorDialog(
             account = editorAccount,
@@ -488,11 +497,11 @@ private fun AccountEditorDialog(
     var concurrency by rememberSaveable { mutableStateOf((account?.concurrency ?: 1).toString()) }
     var priority by rememberSaveable { mutableStateOf((account?.priority ?: 0).toString()) }
     var rateMultiplier by rememberSaveable { mutableStateOf((account?.rateMultiplier ?: 1.0).toString()) }
-    var apiKey by rememberSaveable { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
     var cookie by rememberSaveable { mutableStateOf("") }
     var accessToken by rememberSaveable { mutableStateOf("") }
     var refreshToken by rememberSaveable { mutableStateOf("") }
-    var baseUrl by rememberSaveable { mutableStateOf("") }
+    var baseUrl by rememberSaveable { mutableStateOf(account?.credentials?.get("base_url") as? String ?: "") }
     var extraJson by rememberSaveable { mutableStateOf("") }
     var exchangeCookie by rememberSaveable { mutableStateOf(true) }
     var selectedGroups by remember { mutableStateOf((account?.groupIds?.ifEmpty { account.groups.map { it.id } } ?: emptyList()).toSet()) }
@@ -511,7 +520,7 @@ private fun AccountEditorDialog(
                 }
                 HorizontalDivider()
                 LazyColumn(
-                    modifier = Modifier.weight(1f),
+                    modifier = Modifier.weight(1f).testTag("account-editor-fields"),
                     contentPadding = PaddingValues(20.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                 ) {
@@ -530,9 +539,11 @@ private fun AccountEditorDialog(
                             OutlinedTextField(rateMultiplier, { rateMultiplier = it }, Modifier.weight(1f), label = { Text("倍率") }, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal), singleLine = true)
                         }
                     }
+                    item { SecretField(apiKey, { apiKey = it }, if (editing) "新 API Key（留空保留）" else "API Key") }
+                    item { OutlinedTextField(baseUrl, { baseUrl = it }, Modifier.fillMaxWidth(), label = { Text("Base URL") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)) }
+                    if (editing) item { Text("后端不会返回原密钥；留空会保留已保存的 API Key。", style = MaterialTheme.typography.bodySmall) }
                     if (!editing) {
                         item { Text("认证凭据", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, modifier = Modifier.padding(top = 8.dp)) }
-                        item { SecretField(apiKey, { apiKey = it }, "API Key") }
                         item { SecretField(cookie, { cookie = it }, if (platform == "anthropic") "Session Key / Cookie" else "Cookie") }
                         if (platform == "anthropic" && (type == "oauth" || type == "setup-token")) {
                             item {
@@ -544,7 +555,6 @@ private fun AccountEditorDialog(
                         }
                         item { SecretField(accessToken, { accessToken = it }, "Access Token") }
                         item { SecretField(refreshToken, { refreshToken = it }, "Refresh Token") }
-                        item { OutlinedTextField(baseUrl, { baseUrl = it }, Modifier.fillMaxWidth(), label = { Text("Base URL") }, singleLine = true, keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri)) }
                         item { SecretField(extraJson, { extraJson = it }, "其他凭据 JSON") }
                     }
                     if (groups.isNotEmpty()) {
@@ -577,9 +587,12 @@ private fun AccountEditorDialog(
                                 return@Button
                             }
                             if (editing) {
+                                val credentials = runCatching { editedAccountCredentials(account!!, baseUrl, apiKey) }
+                                    .getOrElse { error = it.message ?: "凭据格式错误"; return@Button }
                                 onUpdate(
                                     account!!,
                                     UpdateAiAccountRequest(
+                                        credentials = credentials,
                                         name = name.trim(),
                                         notes = notes.trim(),
                                         type = type,
