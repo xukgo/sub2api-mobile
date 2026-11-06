@@ -1,0 +1,9 @@
+<resources>
+    <color name="launcher_background">#14261F</color>
+    <color name="widget_background">#F8FBF8</color>
+    <color name="widget_border">#DCE7E0</color>
+    <color name="widget_text_primary">#173127</color>
+    <color name="widget_text_secondary">#5B7067</color>
+    <color name="widget_accent">#16794B</color>
+    <color name="widget_progress_track">#D8E5DD</color>
+</resources>

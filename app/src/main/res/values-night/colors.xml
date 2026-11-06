@@ -1,0 +1,8 @@
+<resources>
+    <color name="widget_background">#15231D</color>
+    <color name="widget_border">#2D4037</color>
+    <color name="widget_text_primary">#F1F7F3</color>
+    <color name="widget_text_secondary">#AFC1B7</color>
+    <color name="widget_accent">#55C98A</color>
+    <color name="widget_progress_track">#354A40</color>
+</resources>
