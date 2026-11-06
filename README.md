@@ -10,10 +10,10 @@
 - 系统 Keystore 加密保存各服务会话，安全存储失败时停止保存并提示错误；会话文件排除系统备份及设备迁移
 - 用户概览：余额、并发、今日请求、Token、消费和订阅摘要
 - API Key：列表、创建、复制、启停和删除
-- 管理员 AI 平台账号：Claude/OpenAI/Gemini/Antigravity/Grok 账号、Cookie/Token、分组、Base URL/API Key 编辑、选模型连接测试、凭据刷新与剩余额度汇总
+- 管理员 AI 平台账号：Claude/OpenAI/Gemini/Antigravity/Grok 账号、Cookie/Token、分组、Base URL/API Key 编辑、选模型连接测试、调度启停、优先级显示/修改与剩余额度汇总
 - 桌面小部件：显示当前服务全部 AI 账号的总剩余额度与服务名称，支持手动刷新与每 30 分钟自动刷新
 - 渠道状态：管理员与普通用户均可查看整体健康度、可用率、延迟、近期检测记录和各模型 7/15/30 天详情
-- 个人用量：今日/近 7 天/近 30 天记录，每页 50 条并支持翻页；模型与时间同行，展示首字耗时、总耗时、TPS、账号/渠道与费用，隐藏分组及密钥
+- 个人用量：今日/近 7 天/近 30 天记录，每页 50 条并支持翻页；模型与时间同行，展示首字耗时、总耗时、TPS、账号/渠道与费用，隐藏分组及密钥，无渠道信息时隐藏渠道行，卡片按首字延迟渐变着色
 - 管理员所有用量：全站分页记录、用户/账号/模型筛选、全部历史记录与当前页渠道性能样本
 - 管理员用户排行：今天与精确滚动最近 24 小时，支持按 Tokens、请求数和消费排序
 - 订阅：日/周/月额度进度、有效期、兑换码与兑换记录
@@ -31,9 +31,11 @@
 - 普通用户接口会隐藏账号名称、渠道等管理员信息。个人用量显示后端获准返回的账号 ID，未提供的字段明确标注；管理员查看自己的用量时使用按自身用户 ID 过滤的管理员接口。个人与全站记录均为每页 50 条。
 - “所有用量”的渠道性能汇总仅来自当前页记录，是带样本数的比较数据，不是全站实时网络吞吐。
 - 用户排行默认显示“今天”，与网页版用量排行一样直接使用 `/admin/dashboard/user-breakdown` 的服务端聚合结果，无需拉取明细。v0.2.19 的该接口只接受日期，因此手动选择“最近 24 小时”时会分页读取记录、去重并按固定的精确时间窗口统计。页面显示进度与统计区间，切换服务或离开页面会取消未完成的统计；统计失败不会显示部分结果。
+- 账号卡片开关与网页版一致，控制 `schedulable`（是否参与调度），通过 `/admin/accounts/{id}/schedulable` 保存；优先级可在卡片上点击修改，数值越小越优先。已移除独立的 Cookie/凭据更新和刷新功能。
+- 个人与全站用量卡片按首字延迟连续变色：0 秒浅绿、5 秒浅黄、10 秒橙色、20 秒浅红、40 秒及以上红色，区间内按数值插值；以 20% 色彩叠加到浅色/深色主题底色，缺少有效首字延迟时保持普通底色。
 - 编辑账号时原 API Key 不会回显，留空保留已有密钥。修改 Base URL 或输入新密钥时保留其他配置；可用模型通过 `/admin/accounts/{id}/models` 获取，模型测试请求包含 `model_id`。
 
-应用版本：**1.7.1**（versionCode 12）。
+应用版本：**1.8.0**（versionCode 13）。
 
 ## 多服务使用
 
@@ -103,7 +105,7 @@ Windows：
 - `/api/v1/subscriptions`、`/subscriptions/progress`
 - `/api/v1/redeem`、`/redeem/history`
 - `/api/v1/channel-monitors`、`/channel-monitors/{id}/status`
-- `/api/v1/admin/accounts`、`/admin/accounts/{id}/test`、`/admin/accounts/{id}/refresh`
+- `/api/v1/admin/accounts`、`/admin/accounts/{id}/test`、`/admin/accounts/{id}/schedulable`
 - `/api/v1/admin/accounts/{id}/usage`
 - `/api/v1/admin/accounts/{id}/models`；测试接口接收包含 `model_id` 的 JSON
-- `/api/v1/admin/accounts/cookie-auth`、`/admin/accounts/{id}/apply-oauth-credentials`
+- `/api/v1/admin/accounts/cookie-auth`、`/admin/accounts/setup-token-cookie-auth`（创建账号时使用）

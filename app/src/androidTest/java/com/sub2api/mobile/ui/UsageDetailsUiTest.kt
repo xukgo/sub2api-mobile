@@ -26,6 +26,7 @@ class UsageDetailsUiTest {
         compose.setContent { Sub2ApiTheme { UsageLogCard(log, admin = true) } }
         compose.onNodeWithText("用户：requester@example.com").assertIsDisplayed()
         compose.onNodeWithText("账号：Cloud channel").assertIsDisplayed()
+        compose.onNodeWithText("渠道 #4").assertIsDisplayed()
         compose.onNodeWithText("custom-model").assertIsDisplayed()
         compose.onNodeWithText("0.50 s").assertIsDisplayed()
         compose.onNodeWithText("2.00 s").assertIsDisplayed()
@@ -35,9 +36,11 @@ class UsageDetailsUiTest {
 
     @Test
     fun personalRecordDoesNotRenderAdminUserIdentity() {
-        compose.setContent { Sub2ApiTheme { UsageLogCard(log, admin = false) } }
+        compose.setContent { Sub2ApiTheme { UsageLogCard(log.copy(channelId = null), admin = false) } }
         compose.onNodeWithText("用户：requester@example.com").assertDoesNotExist()
         compose.onNodeWithText("TPS").assertIsDisplayed()
+        compose.onNodeWithText("后端未提供", substring = true).assertDoesNotExist()
+        compose.onNodeWithText("渠道", substring = true).assertDoesNotExist()
         assertCompactDetails()
     }
 

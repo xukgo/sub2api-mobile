@@ -143,9 +143,6 @@ interface ApiService {
     @GET("admin/groups/all")
     suspend fun adminGroups(): Response<ApiEnvelope<List<Group>>>
 
-    @GET("admin/accounts/{id}")
-    suspend fun aiAccount(@Path("id") id: Long): Response<ApiEnvelope<AiAccount>>
-
     @POST("admin/accounts")
     suspend fun createAiAccount(@Body request: CreateAiAccountRequest): Response<ApiEnvelope<AiAccount>>
 
@@ -165,8 +162,11 @@ interface ApiService {
     @GET("admin/accounts/{id}/models")
     suspend fun accountModels(@Path("id") id: Long): Response<ApiEnvelope<List<AccountModel>>>
 
-    @POST("admin/accounts/{id}/refresh")
-    suspend fun refreshAiAccount(@Path("id") id: Long): Response<ApiEnvelope<JsonElement>>
+    @POST("admin/accounts/{id}/schedulable")
+    suspend fun setAiAccountSchedulable(
+        @Path("id") id: Long,
+        @Body request: SetAiAccountSchedulableRequest,
+    ): Response<ApiEnvelope<AiAccount>>
 
     @GET("admin/accounts/{id}/usage")
     suspend fun aiAccountUsage(
@@ -184,9 +184,4 @@ interface ApiService {
     @POST("admin/accounts/setup-token-cookie-auth")
     suspend fun exchangeSetupTokenCookie(@Body request: CookieAuthRequest): Response<ApiEnvelope<Map<String, Any?>>>
 
-    @POST("admin/accounts/{id}/apply-oauth-credentials")
-    suspend fun applyOAuthCredentials(
-        @Path("id") id: Long,
-        @Body request: ApplyOAuthCredentialsRequest,
-    ): Response<ApiEnvelope<AiAccount>>
 }

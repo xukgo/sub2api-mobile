@@ -146,4 +146,42 @@ class AdminApiContractTest {
             assertEquals("/api/v1/admin/accounts/8/models", server.takeRequest(5, TimeUnit.SECONDS)!!.requestUrl!!.encodedPath)
         }
     }
+
+    @Test
+    fun schedulingUsesDedicatedWebEndpointAndPreservesAccountStatus() = runBlocking {
+        MockWebServer().use { server ->
+            server.start()
+            val repository = repository(server)
+            for (schedulable in listOf(false, true)) {
+                server.enqueue(response("""{"id":7,"status":"error","schedulable":$schedulable,"priority":8}"""))
+                val updated = repository.setAiAccountSchedulable(7, schedulable)
+                val request = server.takeRequest(5, TimeUnit.SECONDS)!!
+                assertEquals("POST", request.method)
+                assertEquals("/api/v1/admin/accounts/7/schedulable", request.requestUrl!!.encodedPath)
+                val body = JsonParser.parseString(request.body.readUtf8()).asJsonObject
+                assertEquals(setOf("schedulable"), body.keySet())
+                assertEquals(schedulable, body["schedulable"].asBoolean)
+                assertEquals(schedulable, updated.schedulable)
+                assertEquals("error", updated.status)
+                assertEquals(8, updated.priority)
+            }
+        }
+    }
+
+    @Test
+    fun priorityOnlyEditDoesNotOverwriteSchedulingStatusOrCredentials() = runBlocking {
+        MockWebServer().use { server ->
+            server.start()
+            server.enqueue(response("""{"id":7,"priority":-3,"status":"active","schedulable":false}"""))
+            val result = repository(server).updateAiAccount(7, UpdateAiAccountRequest(priority = -3))
+            val request = server.takeRequest(5, TimeUnit.SECONDS)!!
+            assertEquals("PUT", request.method)
+            assertEquals("/api/v1/admin/accounts/7", request.requestUrl!!.encodedPath)
+            val body = JsonParser.parseString(request.body.readUtf8()).asJsonObject
+            assertEquals(setOf("priority"), body.keySet())
+            assertEquals(-3, body["priority"].asInt)
+            assertEquals(-3, result.priority)
+            assertFalse(result.schedulable)
+        }
+    }
 }

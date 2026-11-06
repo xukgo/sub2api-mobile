@@ -7,23 +7,6 @@ import org.junit.Test
 
 class AiAccountRepositoryTest {
     @Test
-    fun cookieUpdateKeepsVisibleConfigurationForServerSideSecretMerge() {
-        val current = mapOf<String, Any?>(
-            "base_url" to "https://api.example.com",
-            "organization_uuid" to "org-123",
-            "model_mapping" to mapOf("claude" to "custom-claude"),
-        )
-
-        val updated = credentialsWithReplacement(current, "cookie", "  session-cookie  ")
-
-        assertEquals("session-cookie", updated["cookie"])
-        assertEquals(current["base_url"], updated["base_url"])
-        assertEquals(current["organization_uuid"], updated["organization_uuid"])
-        assertEquals(current["model_mapping"], updated["model_mapping"])
-        assertFalse(current.containsKey("cookie"))
-    }
-
-    @Test
     fun parsesSuccessfulAccountTestSse() {
         val result = AccountTestSseParser.parse(
             """

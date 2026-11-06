@@ -145,7 +145,6 @@ class ApiRepository(
     }
 
     suspend fun adminGroups(): List<Group> = unwrap(service.adminGroups())
-    suspend fun aiAccount(id: Long): AiAccount = unwrap(service.aiAccount(id))
     suspend fun createAiAccount(request: CreateAiAccountRequest): AiAccount =
         unwrap(service.createAiAccount(request))
 
@@ -167,17 +166,8 @@ class ApiRepository(
         return AccountTestSseParser.parse(raw).copy(latencyMs = (System.nanoTime() - started) / 1_000_000)
     }
 
-    suspend fun refreshAiAccount(id: Long): AiAccountRefreshResult {
-        val payload = unwrap(service.refreshAiAccount(id))
-        if (payload.isJsonObject && payload.asJsonObject.has("id")) {
-            return AiAccountRefreshResult(gson.fromJson(payload, AiAccount::class.java))
-        }
-        val warning = payload.takeIf { it.isJsonObject }?.asJsonObject?.let { json ->
-            json.get("message")?.takeUnless { it.isJsonNull }?.asString
-                ?: json.get("warning")?.takeUnless { it.isJsonNull }?.asString
-        }
-        return AiAccountRefreshResult(aiAccount(id), warning)
-    }
+    suspend fun setAiAccountSchedulable(id: Long, schedulable: Boolean): AiAccount =
+        unwrap(service.setAiAccountSchedulable(id, SetAiAccountSchedulableRequest(schedulable)))
 
     suspend fun clearAiAccountError(id: Long): AiAccount = unwrap(service.clearAiAccountError(id))
 
@@ -212,23 +202,6 @@ class ApiRepository(
             unwrap(service.exchangeCookie(request))
         }
     }
-
-    suspend fun updateCredentialField(account: AiAccount, field: String, value: String): AiAccount =
-        updateAiAccount(
-            account.id,
-            UpdateAiAccountRequest(credentials = credentialsWithReplacement(account.credentials, field, value)),
-        )
-
-    suspend fun applyOAuthCredentials(account: AiAccount, credentials: Map<String, Any?>): AiAccount =
-        unwrap(
-            service.applyOAuthCredentials(
-                account.id,
-                ApplyOAuthCredentialsRequest(
-                    type = account.type,
-                    credentials = account.credentials + credentials,
-                ),
-            ),
-        )
 
     private fun persistLogin(result: LoginResult) {
         val token = result.accessToken
@@ -269,12 +242,6 @@ class ApiRepository(
         return ApiException(message, response.code(), json?.get("code")?.asInt)
     }
 }
-
-internal fun credentialsWithReplacement(
-    currentVisibleCredentials: Map<String, Any?>,
-    field: String,
-    value: String,
-): Map<String, Any?> = currentVisibleCredentials + (field to value.trim())
 
 fun editedAccountCredentials(account: AiAccount, baseUrl: String, apiKey: String): Map<String, Any?>? {
     val base = baseUrl.trim()

@@ -165,6 +165,8 @@ data class UpdateAiAccountRequest(
     val groupIds: List<Long>? = null,
 )
 
+data class SetAiAccountSchedulableRequest(val schedulable: Boolean)
+
 data class AiAccountTestResult(
     val success: Boolean = false,
     val message: String = "",
@@ -265,17 +267,6 @@ data class AiQuotaSummary(
 data class CookieAuthRequest(
     val code: String,
     val proxyId: Long? = null,
-)
-
-data class ApplyOAuthCredentialsRequest(
-    val type: String,
-    val credentials: Map<String, Any?>,
-    val extra: Map<String, Any?>? = null,
-)
-
-data class AiAccountRefreshResult(
-    val account: AiAccount,
-    val warning: String? = null,
 )
 
 data class Paginated<T>(

@@ -49,6 +49,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -99,29 +101,14 @@ private val accountTypeChoices = listOf(
     Choice("service_account", "服务账号"),
 )
 
-private val credentialChoices = listOf(
-    Choice("cookie", "Cookie"),
-    Choice("session_key", "Session Key"),
-    Choice("api_key", "API Key"),
-    Choice("access_token", "Access Token"),
-    Choice("refresh_token", "Refresh Token"),
-    Choice("base_url", "Base URL"),
-    Choice("service_account_json", "Service Account JSON"),
-    Choice("aws_access_key_id", "AWS Access Key ID"),
-    Choice("aws_secret_access_key", "AWS Secret Access Key"),
-    Choice("aws_session_token", "AWS Session Token"),
-)
-
 @Composable
 fun AccountsScreen(
     state: AppUiState,
     onFilter: (String?, String?, String?) -> Unit,
     onCreate: (CreateAiAccountRequest, String, Boolean, () -> Unit) -> Unit,
     onUpdate: (AiAccount, UpdateAiAccountRequest, () -> Unit) -> Unit,
-    onCredential: (AiAccount, String, String, Boolean, () -> Unit) -> Unit,
     onTest: (AiAccount, String) -> Unit,
     onLoadModels: (AiAccount) -> Unit = {},
-    onRefreshCredential: (AiAccount) -> Unit,
     onClearError: (AiAccount) -> Unit,
     onToggle: (AiAccount) -> Unit,
     onDelete: (AiAccount) -> Unit,
@@ -131,7 +118,7 @@ fun AccountsScreen(
     var search by rememberSaveable { mutableStateOf("") }
     var editorAccount by remember { mutableStateOf<AiAccount?>(null) }
     var showEditor by rememberSaveable { mutableStateOf(false) }
-    var credentialAccount by remember { mutableStateOf<AiAccount?>(null) }
+    var priorityAccount by remember { mutableStateOf<AiAccount?>(null) }
     var deleteAccount by remember { mutableStateOf<AiAccount?>(null) }
     var testingAccount by remember { mutableStateOf<AiAccount?>(null) }
 
@@ -183,7 +170,7 @@ fun AccountsScreen(
                 ) {
                     item {
                         Text(
-                            "${state.aiAccounts.count { it.status == "active" }} 个启用 · ${state.aiAccounts.size} 个全部",
+                            "${state.aiAccounts.count { it.schedulable }} 个调度启用 · ${state.aiAccounts.size} 个全部",
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
@@ -198,8 +185,7 @@ fun AccountsScreen(
                             quotaLoading = state.quotaLoading && account.id !in state.aiAccountQuotas,
                             busy = state.accountsLoading,
                             onTest = { testingAccount = account },
-                            onCredential = { credentialAccount = account },
-                            onRefresh = { onRefreshCredential(account) },
+                            onPriority = { priorityAccount = account },
                             onEdit = { editorAccount = account; showEditor = true },
                             onClearError = { onClearError(account) },
                             onToggle = { onToggle(account) },
@@ -232,13 +218,13 @@ fun AccountsScreen(
             onUpdate = { account, request -> onUpdate(account, request) { showEditor = false } },
         )
     }
-    credentialAccount?.let { account ->
-        CredentialDialog(
+    priorityAccount?.let { account ->
+        AccountPriorityDialog(
             account = account,
             busy = state.accountsLoading,
-            onDismiss = { if (!state.accountsLoading) credentialAccount = null },
-            onSave = { field, value, exchange ->
-                onCredential(account, field, value, exchange) { credentialAccount = null }
+            onDismiss = { if (!state.accountsLoading) priorityAccount = null },
+            onSave = { priority ->
+                onUpdate(account, UpdateAiAccountRequest(priority = priority)) { priorityAccount = null }
             },
         )
     }
@@ -334,8 +320,7 @@ private fun AccountCard(
     quotaLoading: Boolean,
     busy: Boolean,
     onTest: () -> Unit,
-    onCredential: () -> Unit,
-    onRefresh: () -> Unit,
+    onPriority: () -> Unit,
     onEdit: () -> Unit,
     onClearError: () -> Unit,
     onToggle: () -> Unit,
@@ -360,14 +345,15 @@ private fun AccountCard(
                     Text(account.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     Text(typeLabel(account.type), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                Switch(checked = account.status == "active", onCheckedChange = { onToggle() }, enabled = !busy)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(if (account.schedulable) "调度启用" else "调度停用", style = MaterialTheme.typography.labelSmall)
+                    Switch(checked = account.schedulable, onCheckedChange = { onToggle() }, enabled = !busy,
+                        modifier = Modifier.semantics { contentDescription = "账号调度" })
+                }
                 Box {
                     IconButton(onClick = { menu = true }) { Icon(Icons.Outlined.MoreVert, "更多") }
                     DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                         DropdownMenuItem(text = { Text("编辑设置") }, leadingIcon = { Icon(Icons.Outlined.Edit, null) }, onClick = { menu = false; onEdit() })
-                        if (account.type == "oauth" || account.type == "setup-token") {
-                            DropdownMenuItem(text = { Text("刷新凭据") }, leadingIcon = { Icon(Icons.Outlined.Refresh, null) }, onClick = { menu = false; onRefresh() })
-                        }
                         if (account.status == "error") {
                             DropdownMenuItem(text = { Text("清除错误") }, leadingIcon = { Icon(Icons.Outlined.ErrorOutline, null) }, onClick = { menu = false; onClearError() })
                         }
@@ -393,6 +379,10 @@ private fun AccountCard(
                     }
                 }
             }
+            TextButton(onClick = onPriority, enabled = !busy, modifier = Modifier.padding(horizontal = 6.dp)) {
+                Text("优先级：${account.priority}")
+                Icon(Icons.Outlined.Edit, "修改优先级", modifier = Modifier.padding(start = 6.dp).size(14.dp))
+            }
             AccountQuotaBlock(quota = quota, loading = quotaLoading)
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
             Row(
@@ -409,7 +399,6 @@ private fun AccountCard(
                     )
                 }
                 IconButton(onClick = onTest, enabled = !busy) { Icon(Icons.Outlined.NetworkCheck, "测试连接") }
-                IconButton(onClick = onCredential, enabled = !busy) { Icon(Icons.Outlined.Cookie, "更新 Cookie 或凭据") }
             }
         }
     }
@@ -586,6 +575,11 @@ private fun AccountEditorDialog(
                                 error = "请输入账号名称"
                                 return@Button
                             }
+                            val priorityValue = priority.toIntOrNull()
+                            if (priorityValue == null) {
+                                error = "优先级需要是有效整数"
+                                return@Button
+                            }
                             if (editing) {
                                 val credentials = runCatching { editedAccountCredentials(account!!, baseUrl, apiKey) }
                                     .getOrElse { error = it.message ?: "凭据格式错误"; return@Button }
@@ -597,7 +591,7 @@ private fun AccountEditorDialog(
                                         notes = notes.trim(),
                                         type = type,
                                         concurrency = concurrency.toIntOrNull()?.coerceAtLeast(1) ?: 1,
-                                        priority = priority.toIntOrNull() ?: 0,
+                                        priority = priorityValue,
                                         rateMultiplier = rateMultiplier.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 1.0,
                                         groupIds = selectedGroups.toList(),
                                     ),
@@ -613,7 +607,7 @@ private fun AccountEditorDialog(
                                         type = type,
                                         credentials = credentials,
                                         concurrency = concurrency.toIntOrNull()?.coerceAtLeast(1) ?: 1,
-                                        priority = priority.toIntOrNull() ?: 0,
+                                        priority = priorityValue,
                                         rateMultiplier = rateMultiplier.toDoubleOrNull()?.coerceAtLeast(0.0) ?: 1.0,
                                         groupIds = selectedGroups.toList(),
                                     ),
@@ -631,50 +625,27 @@ private fun AccountEditorDialog(
 }
 
 @Composable
-private fun CredentialDialog(account: AiAccount, busy: Boolean, onDismiss: () -> Unit, onSave: (String, String, Boolean) -> Unit) {
-    val anthropicExchange = account.platform == "anthropic" && (account.type == "oauth" || account.type == "setup-token")
-    var field by rememberSaveable { mutableStateOf(if (anthropicExchange) "session_key" else "cookie") }
-    var value by rememberSaveable { mutableStateOf("") }
-    var exchange by rememberSaveable { mutableStateOf(anthropicExchange) }
+private fun AccountPriorityDialog(account: AiAccount, busy: Boolean, onDismiss: () -> Unit, onSave: (Int) -> Unit) {
+    var priority by rememberSaveable(account.id) { mutableStateOf(account.priority.toString()) }
+    var error by rememberSaveable(account.id) { mutableStateOf<String?>(null) }
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("更新 ${account.name} 的凭据") },
+        title = { Text("修改优先级") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
-                ChoiceMenu("凭据类型", credentialChoices, field, { field = it }, Modifier.fillMaxWidth(), enabled = !exchange)
-                val fieldLabel = credentialChoices.firstOrNull { it.value == field }?.label ?: "凭据"
-                if (field == "base_url") {
-                    OutlinedTextField(
-                        value = value,
-                        onValueChange = { value = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text(fieldLabel) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri),
-                        singleLine = true,
-                    )
-                } else {
-                    SecretField(value, { value = it }, fieldLabel)
-                }
-                if (anthropicExchange) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("通过 Cookie 自动换取 OAuth", modifier = Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                        Switch(
-                            checked = exchange,
-                            onCheckedChange = {
-                                exchange = it
-                                if (it) field = "session_key"
-                            },
-                        )
-                    }
-                }
-                Text(
-                    if (exchange) "Session Key 将由服务器换取完整凭据。" else "仅更新此字段，服务器会保留账号的其他 Cookie/Token。",
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(account.name)
+                OutlinedTextField(priority, { priority = it; error = null }, label = { Text("优先级") },
+                    supportingText = { Text(error ?: "数值越小，优先级越高") }, isError = error != null,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number), singleLine = true,
+                    enabled = !busy)
             }
         },
-        confirmButton = { Button(onClick = { onSave(field, value, exchange) }, enabled = value.isNotBlank() && !busy) { Text(if (busy) "更新中" else "更新") } },
+        confirmButton = {
+            TextButton(onClick = {
+                val value = priority.toIntOrNull()
+                if (value == null) error = "请输入有效整数" else onSave(value)
+            }, enabled = !busy) { Text(if (busy) "保存中" else "保存") }
+        },
         dismissButton = { TextButton(onClick = onDismiss, enabled = !busy) { Text("取消") } },
     )
 }

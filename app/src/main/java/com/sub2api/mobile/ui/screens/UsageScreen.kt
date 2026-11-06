@@ -185,16 +185,19 @@ private fun UsageFilterForm(filters: UsageFilters, onApply: (UsageFilters) -> Un
 
 @Composable
 internal fun UsageLogCard(log: UsageLog, admin: Boolean = false) {
-    Card(shape = AppCardShape, border = appCardBorder(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
+    Card(shape = AppCardShape, border = appCardBorder(), colors = CardDefaults.cardColors(
+        containerColor = firstTokenCardColor(log.firstTokenMs, MaterialTheme.colorScheme.surface),
+        contentColor = MaterialTheme.colorScheme.onSurface,
+    )) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(log.model.ifBlank { "未知模型" }, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(formatDate(log.createdAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, maxLines = 1)
+                Text(formatDate(log.createdAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
             }
             (log.upstreamResponseModel ?: log.upstreamModel)?.takeIf { it != log.model }?.let { Text("实际模型：$it", style = MaterialTheme.typography.bodySmall) }
             if (admin) Text("用户：${log.user?.email?.takeIf { it.isNotBlank() } ?: log.user?.username?.takeIf { it.isNotBlank() } ?: "#${log.userId}"}")
             Text("账号：${log.accountLabel}", style = MaterialTheme.typography.bodySmall)
-            Text(log.channelLabel, style = MaterialTheme.typography.bodySmall)
+            if ((log.channelId ?: 0) > 0) Text(log.channelLabel, style = MaterialTheme.typography.bodySmall)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 TimingMetric("首字", elapsedLabel(log.firstTokenMs?.toDouble()))
                 TimingMetric("总耗时", elapsedLabel(log.durationMs?.toDouble()))

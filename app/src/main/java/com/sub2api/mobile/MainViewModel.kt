@@ -736,33 +736,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .onFailure { error -> _uiState.update { it.copy(accountsLoading = false, message = error.userMessage()) } }
     }
 
-    fun updateAiCredential(
-        account: AiAccount,
-        field: String,
-        value: String,
-        exchangeAnthropicCookie: Boolean,
-        onDone: () -> Unit,
-    ) = launchSession {
-        if (_uiState.value.user?.role != "admin") return@launchSession
-        if (value.isBlank()) {
-            showMessage("凭据不能为空")
-            return@launchSession
-        }
-        _uiState.update { it.copy(accountsLoading = true) }
-        runSessionCatching {
-            if (exchangeAnthropicCookie && account.platform == "anthropic") {
-                val credentials = repository.exchangeAnthropicCookie(value, account.type == "setup-token")
-                repository.applyOAuthCredentials(account, credentials)
-            } else {
-                repository.updateCredentialField(account, field, value)
-            }
-        }.onSuccess { updated ->
-            replaceAiAccount(updated, "凭据已安全更新")
-            onDone()
-            loadAiAccountQuotas(repository, _uiState.value.allAiAccounts, force = true)
-        }.onFailure { error -> _uiState.update { it.copy(accountsLoading = false, message = error.userMessage()) } }
-    }
-
     fun loadAccountModels(account: AiAccount) {
         if (_uiState.value.user?.role != "admin" || account.id in _uiState.value.accountModelsLoading) return
         _uiState.update { it.copy(accountModelsLoading = it.accountModelsLoading + account.id,
@@ -794,17 +767,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
     }
 
-    fun refreshAiCredential(account: AiAccount) = launchSession {
-        if (_uiState.value.user?.role != "admin") return@launchSession
-        _uiState.update { it.copy(accountsLoading = true) }
-        runSessionCatching { repository.refreshAiAccount(account.id) }
-            .onSuccess { result ->
-                replaceAiAccount(result.account, result.warning ?: "账号凭据已刷新")
-                loadAiAccountQuotas(repository, _uiState.value.allAiAccounts, force = true)
-            }
-            .onFailure { error -> _uiState.update { it.copy(accountsLoading = false, message = error.userMessage()) } }
-    }
-
     fun clearAiAccountError(account: AiAccount) = launchSession {
         if (_uiState.value.user?.role != "admin") return@launchSession
         runSessionCatching { repository.clearAiAccountError(account.id) }
@@ -812,15 +774,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             .onFailure { showMessage(it.userMessage()) }
     }
 
-    fun toggleAiAccount(account: AiAccount) = launchSession {
-        if (_uiState.value.user?.role != "admin") return@launchSession
-        runSessionCatching {
-            repository.updateAiAccount(
-                account.id,
-                UpdateAiAccountRequest(status = if (account.status == "active") "inactive" else "active"),
-            )
-        }.onSuccess { replaceAiAccount(it) }
-            .onFailure { showMessage(it.userMessage()) }
+    fun toggleAiAccountScheduling(account: AiAccount) = launchSession {
+        if (_uiState.value.user?.role != "admin" || _uiState.value.accountsLoading) return@launchSession
+        _uiState.update { it.copy(accountsLoading = true) }
+        runSessionCatching { repository.setAiAccountSchedulable(account.id, !account.schedulable) }
+            .onSuccess { replaceAiAccount(it, if (it.schedulable) "账号调度已启用" else "账号调度已停用") }
+            .onFailure { error -> _uiState.update { it.copy(accountsLoading = false, message = error.userMessage()) } }
     }
 
     fun deleteAiAccount(account: AiAccount) = launchSession {

@@ -242,12 +242,10 @@ private fun MainShell(state: AppUiState, viewModel: MainViewModel, onOpenUrl: (S
                         onFilter = viewModel::refreshAiAccounts,
                         onCreate = viewModel::createAiAccount,
                         onUpdate = viewModel::updateAiAccount,
-                        onCredential = viewModel::updateAiCredential,
                         onTest = viewModel::testAiAccount,
                         onLoadModels = viewModel::loadAccountModels,
-                        onRefreshCredential = viewModel::refreshAiCredential,
                         onClearError = viewModel::clearAiAccountError,
-                        onToggle = viewModel::toggleAiAccount,
+                        onToggle = viewModel::toggleAiAccountScheduling,
                         onDelete = viewModel::deleteAiAccount,
                         onRefreshQuotas = viewModel::refreshAiQuotas,
                     )
