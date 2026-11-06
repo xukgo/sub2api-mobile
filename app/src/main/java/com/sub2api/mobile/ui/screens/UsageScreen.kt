@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -29,8 +30,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.sub2api.mobile.AppUiState
 import com.sub2api.mobile.UsageViewState
@@ -101,8 +104,10 @@ private fun UsageRecords(
     onFilter: (UsageFilters) -> Unit = {},
 ) {
     var showPerformance by rememberSaveable { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    LaunchedEffect(state.page, state.period, state.filters) { listState.scrollToItem(0) }
     val dates = usageDateRange(state.period)
-    LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    LazyColumn(state = listState, contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
         item { UsageChoices(listOf("today" to "今日", "week" to "近 7 天", "month" to "近 30 天") +
             (if (admin) listOf("all" to "全部") else emptyList()), state.period, onPeriod) }
         item { Text("${dates.start} — ${dates.end} · ${ZoneId.systemDefault().id}", style = MaterialTheme.typography.labelSmall) }
@@ -137,7 +142,7 @@ private fun UsageRecords(
                 }
             }
         }
-        item { SectionHeader(if (admin) "全站请求记录" else "我的请求记录", "共 ${state.total} 条") }
+        item { SectionHeader(if (admin) "全站请求记录" else "我的请求记录", "共 ${state.total} 条 · 每页 50 条") }
         if (state.logs.isEmpty() && !state.loading && state.error == null) item { EmptyState("当前范围没有使用记录") }
         items(state.logs, key = { it.id }) { log -> UsageLogCard(log, admin) }
         item {
@@ -182,19 +187,20 @@ private fun UsageFilterForm(filters: UsageFilters, onApply: (UsageFilters) -> Un
 internal fun UsageLogCard(log: UsageLog, admin: Boolean = false) {
     Card(shape = AppCardShape, border = appCardBorder(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)) {
         Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(log.model.ifBlank { "未知模型" }, fontWeight = FontWeight.SemiBold)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(log.model.ifBlank { "未知模型" }, Modifier.weight(1f), fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Text(formatDate(log.createdAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline, maxLines = 1)
+            }
             (log.upstreamResponseModel ?: log.upstreamModel)?.takeIf { it != log.model }?.let { Text("实际模型：$it", style = MaterialTheme.typography.bodySmall) }
             if (admin) Text("用户：${log.user?.email?.takeIf { it.isNotBlank() } ?: log.user?.username?.takeIf { it.isNotBlank() } ?: "#${log.userId}"}")
-            Text("密钥：${log.apiKey?.name ?: "#${log.apiKeyId}"}", style = MaterialTheme.typography.bodySmall)
             Text("账号：${log.accountLabel}", style = MaterialTheme.typography.bodySmall)
-            Text("${log.channelLabel} · 分组：${log.group?.name ?: "未提供"}", style = MaterialTheme.typography.bodySmall)
+            Text(log.channelLabel, style = MaterialTheme.typography.bodySmall)
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 TimingMetric("首字", elapsedLabel(log.firstTokenMs?.toDouble()))
                 TimingMetric("总耗时", elapsedLabel(log.durationMs?.toDouble()))
                 TimingMetric("TPS", rateLabel(log.outputRate))
             }
             Text("${formatCount(log.totalTokens)} Tokens · ${formatMoney(log.actualCost)} · ${if (log.stream) "Stream" else "Sync"}", style = MaterialTheme.typography.labelMedium)
-            Text(formatDate(log.createdAt), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
         }
     }
 }
@@ -209,10 +215,10 @@ private fun UserRanking(state: AppUiState, onLoad: (String, String, Boolean) -> 
     val ranking = state.ranking
     val rows = remember(ranking, state.rankingMetric) { sortedUserRanking(ranking?.rows.orEmpty(), state.rankingMetric).take(50) }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { UsageChoices(listOf("24h" to "最近 24 小时", "today" to "今天"), state.rankingPeriod, { onLoad(it, state.rankingMetric, false) }) }
+        item { UsageChoices(listOf("today" to "今天", "24h" to "最近 24 小时"), state.rankingPeriod, { onLoad(it, state.rankingMetric, false) }) }
         item { UsageChoices(listOf("total_tokens" to "Tokens", "requests" to "请求数", "actual_cost" to "消费"), state.rankingMetric, { onLoad(state.rankingPeriod, it, false) }) }
         item { TextButton(onClick = { onLoad(state.rankingPeriod, state.rankingMetric, true) }) { Text("刷新排行") } }
-        if (state.rankingLoading) item { FullScreenLoading("正在统计，已读取 ${state.rankingScanned} 条记录") }
+        if (state.rankingLoading) item { FullScreenLoading(if (state.rankingPeriod == "today") "正在加载用户排行" else "正在统计，已读取 ${state.rankingScanned} 条记录") }
         state.rankingError?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
         ranking?.let {
             val formatter = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss").withZone(ZoneId.systemDefault())
@@ -229,7 +235,7 @@ private fun UserRanking(state: AppUiState, onLoad: (String, String, Boolean) -> 
             }
         }
         if (ranking != null && rows.isEmpty() && !state.rankingLoading) item { EmptyState("这个时间范围暂无用户用量") }
-        item { Text("今天使用服务端排行；最近 24 小时会分页读取记录并按精确时间统计，记录多时需要等待。可切换服务或页面取消统计。", style = MaterialTheme.typography.bodySmall) }
+        item { Text("默认显示今天的服务端用户排行。精确的最近 24 小时需要分页读取记录，记录多时需要等待；切换服务或离开页面可取消统计。", style = MaterialTheme.typography.bodySmall) }
     }
 }
 

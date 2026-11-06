@@ -72,7 +72,7 @@ interface ApiService {
     @GET("usage")
     suspend fun usageLogs(
         @Query("page") page: Int = 1,
-        @Query("page_size") pageSize: Int = 30,
+        @Query("page_size") pageSize: Int = 50,
         @Query("sort_by") sortBy: String = "created_at",
         @Query("sort_order") sortOrder: String = "desc",
         @Query("timezone") timezone: String,

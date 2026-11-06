@@ -73,7 +73,7 @@ class ApiRepository(
         val dates = usageDateRange(period)
         val stats = if (admin) unwrap(service.adminUsageStats(timezone, dates.start, dates.end, filters.userId, filters.accountId, filters.model))
             else unwrap(service.usageStats(period, timezone, dates.start, dates.end))
-        val logs = if (admin) unwrap(service.adminUsageLogs(page, timezone = timezone, startDate = dates.start, endDate = dates.end,
+        val logs = if (admin) unwrap(service.adminUsageLogs(page, pageSize = 50, timezone = timezone, startDate = dates.start, endDate = dates.end,
             userId = filters.userId, accountId = filters.accountId, model = filters.model))
             else unwrap(service.usageLogs(page = page, pageSize = 50, timezone = timezone, startDate = dates.start, endDate = dates.end))
         return UsagePage(stats, logs)

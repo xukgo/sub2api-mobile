@@ -97,7 +97,7 @@ data class AppUiState(
     val personalUsage: UsageViewState = UsageViewState(),
     val adminUsage: UsageViewState = UsageViewState(),
     val ranking: UsageRanking? = null,
-    val rankingPeriod: String = "24h",
+    val rankingPeriod: String = "today",
     val rankingMetric: String = "total_tokens",
     val rankingLoading: Boolean = false,
     val rankingScanned: Int = 0,

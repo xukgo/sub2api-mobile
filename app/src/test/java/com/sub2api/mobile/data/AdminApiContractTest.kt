@@ -1,6 +1,7 @@
 package com.sub2api.mobile.data
 
 import com.google.gson.JsonParser
+import com.sub2api.mobile.AppUiState
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -19,20 +20,28 @@ class AdminApiContractTest {
     private fun response(data: String) = MockResponse().setHeader("Content-Type", "application/json").setBody("""{"code":0,"data":$data}""")
 
     @Test
-    fun personalUsageUsesPersonalEndpointsAndSameDatesForStatsAndRecords() = runBlocking {
+    fun personalUsageUsesPersonalEndpointsWithFiftyRecordsPerPageAndMatchingDates() = runBlocking {
         MockWebServer().use { server ->
             server.start()
-            server.enqueue(response("""{"total_requests":1}"""))
-            server.enqueue(response("""{"items":[{"id":1,"model":"test"}],"total":1,"page":1,"pages":1}"""))
-            val result = repository(server).usage("week", filters = UsageFilters(userId = 99))
-            val stats = server.takeRequest(5, TimeUnit.SECONDS)!!.requestUrl!!
-            val logs = server.takeRequest(5, TimeUnit.SECONDS)!!.requestUrl!!
-            assertEquals("/api/v1/usage/stats", stats.encodedPath)
-            assertEquals("/api/v1/usage", logs.encodedPath)
-            assertNull(logs.queryParameter("user_id"))
-            assertEquals(stats.queryParameter("start_date"), logs.queryParameter("start_date"))
-            assertEquals(stats.queryParameter("end_date"), logs.queryParameter("end_date"))
-            assertEquals(1, result.records.items.size)
+            val repository = repository(server)
+            for (page in 1..2) {
+                server.enqueue(response("""{"total_requests":51}"""))
+                server.enqueue(response("""{"items":[{"id":$page,"model":"test"}],"total":51,"page":$page,"pages":2}"""))
+                val result = repository.usage("week", page = page, filters = UsageFilters(userId = 99))
+                val stats = server.takeRequest(5, TimeUnit.SECONDS)!!.requestUrl!!
+                val logs = server.takeRequest(5, TimeUnit.SECONDS)!!.requestUrl!!
+                assertEquals("/api/v1/usage/stats", stats.encodedPath)
+                assertEquals("/api/v1/usage", logs.encodedPath)
+                assertNull(logs.queryParameter("user_id"))
+                assertEquals("50", logs.queryParameter("page_size"))
+                assertEquals(page.toString(), logs.queryParameter("page"))
+                assertEquals(stats.queryParameter("start_date"), logs.queryParameter("start_date"))
+                assertEquals(stats.queryParameter("end_date"), logs.queryParameter("end_date"))
+                assertEquals(page, result.records.page)
+                assertEquals(2, result.records.pages)
+                assertEquals(51, result.records.total)
+                assertEquals(page.toLong(), result.records.items.single().id)
+            }
         }
     }
 
@@ -53,6 +62,7 @@ class AdminApiContractTest {
                 assertEquals("mapped-model", url.queryParameter("model"))
             }
             assertEquals("2", logs.queryParameter("page"))
+            assertEquals("50", logs.queryParameter("page_size"))
             assertEquals("true", logs.queryParameter("exact_total"))
             assertEquals(2, result.records.pages)
         }
@@ -83,17 +93,18 @@ class AdminApiContractTest {
     }
 
     @Test
-    fun todayRankingUsesServerSideSortAndTimeZone() = runBlocking {
+    fun defaultRankingUsesOneServerAggregationRequestWithSortAndTimeZone() = runBlocking {
         MockWebServer().use { server ->
             server.start()
             server.enqueue(response("""{"users":[{"user_id":9,"email":"user@example.com","requests":12,"total_tokens":99}]}"""))
-            val result = repository(server).userRanking("today", "requests")
+            val result = repository(server).userRanking(AppUiState().rankingPeriod, "requests")
             val url = server.takeRequest(5, TimeUnit.SECONDS)!!.requestUrl!!
             assertEquals("/api/v1/admin/dashboard/user-breakdown", url.encodedPath)
             assertEquals("requests", url.queryParameter("sort_by"))
             assertNotNull(url.queryParameter("timezone"))
             assertEquals(url.queryParameter("start_date"), url.queryParameter("end_date"))
             assertEquals(12L, result.rows.single().requests)
+            assertEquals(1, server.requestCount)
         }
     }
 
