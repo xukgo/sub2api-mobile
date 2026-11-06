@@ -7,7 +7,6 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.Assert.*
 import org.junit.Test
-import java.time.Instant
 import java.util.concurrent.TimeUnit
 
 class AdminApiContractTest {
@@ -69,25 +68,25 @@ class AdminApiContractTest {
     }
 
     @Test
-    fun rollingRankingReadsAllPagesAndDoesNotUseDateOnlyRankingEndpoint() = runBlocking {
+    fun everyRankingPeriodAndMetricUsesOneAggregationRequestWithoutReadingUsagePages() = runBlocking {
         MockWebServer().use { server ->
             server.start()
-            val now = Instant.now()
-            val inside = now.minusSeconds(3600).toString()
-            val outside = now.minusSeconds(25 * 3600).toString()
-            server.enqueue(response("""{"items":[{"id":1,"user_id":1,"output_tokens":20,"created_at":"$inside"},{"id":2,"user_id":1,"output_tokens":1000,"created_at":"$outside"}],"total":3,"page":1,"pages":2}"""))
-            server.enqueue(response("""{"items":[{"id":3,"user_id":2,"output_tokens":30,"created_at":"$inside"}],"total":3,"page":2,"pages":2}"""))
-            val progress = mutableListOf<Int>()
-            val result = repository(server).userRanking("24h", "total_tokens") { progress += it }
-            assertEquals(listOf(2, 3), progress)
-            assertEquals(50L, result.rows.sumOf { it.totalTokens })
-            assertEquals(2L, result.rows.sumOf { it.requests })
-            for (page in 1..2) {
-                val url = server.takeRequest(5, TimeUnit.SECONDS)!!.requestUrl!!
-                assertEquals("/api/v1/admin/usage", url.encodedPath)
-                assertEquals(page.toString(), url.queryParameter("page"))
-                assertEquals("asc", url.queryParameter("sort_order"))
-                assertEquals("true", url.queryParameter("exact_total"))
+            val repository = repository(server)
+            var requests = 0
+            for (period in RankingPeriod.entries) {
+                for (metric in listOf("total_tokens", "requests", "actual_cost")) {
+                    server.enqueue(response("""{"users":[{"user_id":9,"requests":12,"total_tokens":99}]}"""))
+                    val result = repository.userRanking(period.key, metric)
+                    val url = server.takeRequest(5, TimeUnit.SECONDS)!!.requestUrl!!
+                    assertEquals("/api/v1/admin/dashboard/user-breakdown", url.encodedPath)
+                    assertEquals(metric, url.queryParameter("sort_by"))
+                    assertEquals("50", url.queryParameter("limit"))
+                    assertNotNull(url.queryParameter("start_date"))
+                    assertNotNull(url.queryParameter("end_date"))
+                    assertNotNull(url.queryParameter("timezone"))
+                    assertEquals(12L, result.rows.single().requests)
+                    assertEquals(++requests, server.requestCount)
+                }
             }
         }
     }
@@ -104,6 +103,19 @@ class AdminApiContractTest {
             assertNotNull(url.queryParameter("timezone"))
             assertEquals(url.queryParameter("start_date"), url.queryParameter("end_date"))
             assertEquals(12L, result.rows.single().requests)
+            assertEquals(1, server.requestCount)
+        }
+    }
+
+    @Test
+    fun rankingCarriesTheServersActualDateRangeForDisplay() = runBlocking {
+        MockWebServer().use { server ->
+            server.start()
+            server.enqueue(response("""{"users":[],"start_date":"2026-11-05","end_date":"2026-11-06"}"""))
+            val result = repository(server).userRanking("24h", "total_tokens")
+            assertEquals(UsageDateRange("2026-11-05", "2026-11-06"), result.dates)
+            val url = server.takeRequest(5, TimeUnit.SECONDS)!!.requestUrl!!
+            assertEquals(url.queryParameter("timezone"), result.timezone)
             assertEquals(1, server.requestCount)
         }
     }

@@ -62,44 +62,12 @@ data class UserUsageRank(
     val totalTokens: Long = 0,
     val actualCost: Double = 0.0,
 )
-data class UserUsageRankingResponse(val users: List<UserUsageRank> = emptyList())
-data class UsageRanking(val rows: List<UserUsageRank>, val start: Instant, val end: Instant, val scanned: Int? = null)
-
-data class RankingWindow(val start: Instant, val end: Instant, val zone: ZoneId) {
-    val dates: UsageDateRange get() = UsageDateRange(start.atZone(zone).toLocalDate().toString(), end.atZone(zone).toLocalDate().toString())
-    companion object {
-        fun create(period: String, zone: ZoneId = ZoneId.systemDefault(), now: Instant = Instant.now()) = RankingWindow(
-            if (period == "24h") now.minusSeconds(24 * 60 * 60) else now.atZone(zone).toLocalDate().atStartOfDay(zone).toInstant(),
-            now, zone,
-        )
-    }
-}
-
-internal class UsageRankingAccumulator(private val window: RankingWindow) {
-    private val seen = mutableSetOf<Long>()
-    private val users = mutableMapOf<Long, UserUsageRank>()
-
-    fun add(log: UsageLog) {
-        if (log.id <= 0) throw ApiException("记录缺少 ID，无法完整统计用户排行")
-        if (!seen.add(log.id)) return
-        val time = runCatching { Instant.parse(log.createdAt) }.getOrElse { throw ApiException("记录时间无效，无法精确统计最近 24 小时") }
-        if (time < window.start || time >= window.end) return
-        val id = log.userId.takeIf { it > 0 } ?: log.user?.id ?: 0L
-        val old = users[id] ?: UserUsageRank(userId = id)
-        users[id] = old.copy(
-            email = log.user?.email?.takeIf { it.isNotBlank() } ?: old.email,
-            username = log.user?.username?.takeIf { it.isNotBlank() } ?: old.username,
-            requests = old.requests + 1,
-            inputTokens = old.inputTokens + log.inputTokens,
-            outputTokens = old.outputTokens + log.outputTokens,
-            cacheTokens = old.cacheTokens + log.cacheCreationTokens + log.cacheReadTokens,
-            totalTokens = old.totalTokens + log.totalTokens,
-            actualCost = old.actualCost + (log.actualCost.takeIf { it.isFinite() } ?: 0.0),
-        )
-    }
-
-    fun result(scanned: Int) = UsageRanking(users.values.toList(), window.start, window.end, scanned)
-}
+data class UserUsageRankingResponse(
+    val users: List<UserUsageRank> = emptyList(),
+    val startDate: String? = null,
+    val endDate: String? = null,
+)
+data class UsageRanking(val rows: List<UserUsageRank>, val dates: UsageDateRange, val timezone: String)
 
 fun sortedUserRanking(rows: List<UserUsageRank>, metric: String): List<UserUsageRank> = when (metric) {
     "requests" -> rows.sortedWith(compareByDescending<UserUsageRank> { it.requests }.thenBy { it.userId })

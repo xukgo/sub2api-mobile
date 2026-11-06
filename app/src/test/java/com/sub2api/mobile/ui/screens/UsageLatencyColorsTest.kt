@@ -22,9 +22,14 @@ class UsageLatencyColorsTest {
     }
 
     @Test
-    fun everyIntervalChangesGraduallyWithoutJumpsAtThresholds() {
+    fun intervalsGradeSmoothlyAndLaterThresholdsRemainContinuous() {
         for (surface in listOf(Color.White, Color(0xFF151C18))) {
-            for ((from, to) in listOf(0L to 5_000L, 5_000L to 10_000L, 10_000L to 20_000L, 20_000L to 40_000L)) {
+            val greenStart = firstTokenCardColor(0, surface)
+            val greenMiddle = firstTokenCardColor(2_500, surface)
+            val greenEnd = firstTokenCardColor(4_999, surface)
+            assertNotEquals(greenStart, greenMiddle)
+            assertNotEquals(greenMiddle, greenEnd)
+            for ((from, to) in listOf(5_000L to 10_000L, 10_000L to 20_000L, 20_000L to 40_000L)) {
                 val middle = firstTokenCardColor((from + to) / 2, surface)
                 assertNotEquals(firstTokenCardColor(from, surface), middle)
                 assertNotEquals(firstTokenCardColor(to, surface), middle)
@@ -34,6 +39,19 @@ class UsageLatencyColorsTest {
                 assertTrue(abs(left.green - right.green) < 0.001f)
                 assertTrue(abs(left.blue - right.blue) < 0.001f)
             }
+        }
+    }
+
+    @Test
+    fun screenshotTimingsAndEveryValueBelowFiveSecondsRemainGreenUntilYellowStarts() {
+        for (surface in listOf(Color.White, Color(0xFF151C18))) {
+            val samples = (0L..4_999L).toList() + listOf(3_670L, 3_720L, 4_060L)
+            for (ms in samples) {
+                val color = firstTokenCardColor(ms, surface)
+                assertTrue("$ms ms must stay green", color.green > color.red && color.green > color.blue)
+            }
+            val yellow = firstTokenCardColor(5_000, surface)
+            assertTrue(yellow.red > yellow.green && yellow.green > yellow.blue)
         }
     }
 

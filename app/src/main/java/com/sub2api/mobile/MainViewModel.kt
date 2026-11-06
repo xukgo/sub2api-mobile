@@ -100,7 +100,6 @@ data class AppUiState(
     val rankingPeriod: String = "today",
     val rankingMetric: String = "total_tokens",
     val rankingLoading: Boolean = false,
-    val rankingScanned: Int = 0,
     val rankingError: String? = null,
     val accountModels: Map<Long, List<AccountModel>> = emptyMap(),
     val accountModelsLoading: Set<Long> = emptySet(),
@@ -566,19 +565,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun loadRanking(
         period: String = _uiState.value.rankingPeriod,
         metric: String = _uiState.value.rankingMetric,
-        force: Boolean = false,
     ) {
         if (_uiState.value.user?.role != "admin") return
-        if (!force && period == "24h" && _uiState.value.rankingPeriod == period && _uiState.value.ranking != null && !_uiState.value.rankingLoading) {
-            _uiState.update { it.copy(rankingMetric = metric) }
-            return
-        }
         rankingJob?.cancel()
         _uiState.update { it.copy(rankingPeriod = period, rankingMetric = metric, ranking = null,
-            rankingLoading = true, rankingScanned = 0, rankingError = null) }
+            rankingLoading = true, rankingError = null) }
         rankingJob = launchSession {
             runSessionCatching {
-                repository.userRanking(period, metric) { count -> _uiState.update { it.copy(rankingScanned = count) } }
+                repository.userRanking(period, metric)
             }.onSuccess { result -> _uiState.update { it.copy(ranking = result, rankingLoading = false) } }
                 .onFailure { error -> _uiState.update { it.copy(rankingLoading = false, rankingError = error.userMessage()) } }
         }

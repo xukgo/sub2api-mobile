@@ -23,7 +23,13 @@ private val darkFirstTokenColors = listOf(
 
 internal fun firstTokenCardColor(firstTokenMs: Long?, surface: Color): Color {
     if (firstTokenMs == null || firstTokenMs < 0) return surface
-    val firstTokenColors = if (surface.luminance() < 0.5f) darkFirstTokenColors else lightFirstTokenColors
+    val dark = surface.luminance() < 0.5f
+    val firstTokenColors = if (dark) darkFirstTokenColors else lightFirstTokenColors
+    // Requests below 5 s stay green; interpolating toward yellow here turns 3–4 s olive.
+    if (firstTokenMs < 5_000L) {
+        val greenEnd = if (dark) Color(0xFF1B5136) else Color(0xFFD5EBDD)
+        return lerp(firstTokenColors.first().second, greenEnd, firstTokenMs / 5_000f)
+    }
     val upper = firstTokenColors.indexOfFirst { firstTokenMs <= it.first }
     return when {
         upper < 0 -> firstTokenColors.last().second

@@ -262,7 +262,7 @@ private fun MainShell(state: AppUiState, viewModel: MainViewModel, onOpenUrl: (S
                     onRefresh = { viewModel.loadUsage() }, onPageChange = { viewModel.loadUsage(page = it) })
                 MainTab.ALL_USAGE -> AdminUsageScreen(state,
                     onLoad = { period, page, filters -> viewModel.loadUsage(true, period, page, filters) },
-                    onRanking = { period, metric, force -> viewModel.loadRanking(period, metric, force) },
+                    onRanking = { period, metric -> viewModel.loadRanking(period, metric) },
                     onCancelRanking = viewModel::cancelRanking)
                 MainTab.SUBSCRIPTIONS -> SubscriptionsScreen(state, viewModel::redeem)
                 MainTab.CHANNEL_STATUS -> ChannelStatusScreen(

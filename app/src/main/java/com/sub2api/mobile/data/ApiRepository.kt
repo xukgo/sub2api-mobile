@@ -6,8 +6,6 @@ import com.google.gson.GsonBuilder
 import com.google.gson.JsonElement
 import com.google.gson.JsonObject
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.currentCoroutineContext
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import retrofit2.Response
@@ -79,30 +77,14 @@ class ApiRepository(
         return UsagePage(stats, logs)
     }
 
-    suspend fun userRanking(period: String, metric: String, onProgress: (Int) -> Unit = {}): UsageRanking {
-        val window = RankingWindow.create(period)
-        val dates = window.dates
-        if (period == "today") {
-            val result = unwrap(service.userUsageRanking(dates.start, dates.end, window.zone.id, metric))
-            return UsageRanking(result.users, window.start, window.end)
-        }
-        // v0.2.19 accepts calendar dates only. Filter all pages against a fixed, exact 24-hour window.
-        val accumulator = UsageRankingAccumulator(window)
-        var page = 1
-        var scanned = 0
-        do {
-            currentCoroutineContext().ensureActive()
-            val result = unwrap(service.adminUsageLogs(page, pageSize = 1000, sortOrder = "asc",
-                timezone = window.zone.id, startDate = dates.start, endDate = dates.end))
-            if (result.items.isEmpty() && page < result.pages) throw ApiException("分页数据不完整，请重新刷新排行")
-            withContext(Dispatchers.Default) { result.items.forEach(accumulator::add) }
-            scanned += result.items.size
-            currentCoroutineContext().ensureActive()
-            onProgress(scanned)
-            if (page >= result.pages) break
-            page++
-        } while (true)
-        return accumulator.result(scanned)
+    suspend fun userRanking(period: String, metric: String): UsageRanking {
+        val zone = java.time.ZoneId.systemDefault()
+        val dates = rankingDateRange(period, zone)
+        val result = unwrap(service.userUsageRanking(dates.start, dates.end, zone.id, metric))
+        return UsageRanking(result.users, UsageDateRange(
+            result.startDate?.takeIf { it.isNotBlank() } ?: dates.start,
+            result.endDate?.takeIf { it.isNotBlank() } ?: dates.end,
+        ), zone.id)
     }
 
     suspend fun subscriptions(): Pair<List<UserSubscription>, List<SubscriptionProgress>> =

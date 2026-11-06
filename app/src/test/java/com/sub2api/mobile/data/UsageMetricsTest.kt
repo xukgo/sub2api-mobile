@@ -4,9 +4,6 @@ import com.google.gson.FieldNamingPolicy
 import com.google.gson.GsonBuilder
 import org.junit.Assert.*
 import org.junit.Test
-import java.time.Duration
-import java.time.Instant
-import java.time.ZoneId
 
 class UsageMetricsTest {
     @Test
@@ -50,35 +47,14 @@ class UsageMetricsTest {
     }
 
     @Test
-    fun rolling24HoursAndTodayRemainDistinctAcrossDaylightSavingTime() {
-        val now = Instant.parse("2026-03-08T18:00:00Z")
-        val zone = ZoneId.of("America/New_York")
-        val rolling = RankingWindow.create("24h", zone, now)
-        val today = RankingWindow.create("today", zone, now)
-        assertEquals(24L, Duration.between(rolling.start, rolling.end).toHours())
-        assertEquals(Instant.parse("2026-03-08T05:00:00Z"), today.start)
-        assertEquals("2026-03-07", rolling.dates.start)
-        assertEquals("2026-03-08", rolling.dates.end)
-        assertEquals(UsageDateRange("2026-03-02", "2026-03-08"), usageDateRange("week", zone, now))
-    }
-
-    @Test
-    fun rollingRankingFiltersExactBoundariesAndDeduplicatesPages() {
-        val window = RankingWindow.create("24h", ZoneId.of("UTC"), Instant.parse("2026-11-06T12:00:00Z"))
-        val accumulator = UsageRankingAccumulator(window)
-        val first = UsageLog(id = 1, userId = 10, inputTokens = 5, outputTokens = 10, cacheReadTokens = 5, actualCost = 0.1,
-            createdAt = window.start.toString(), user = User(email = "first@example.com"))
-        accumulator.add(first)
-        accumulator.add(first)
-        accumulator.add(first.copy(id = 2, createdAt = window.start.minusMillis(1).toString()))
-        accumulator.add(first.copy(id = 3, createdAt = window.end.toString()))
-        accumulator.add(first.copy(id = 4, userId = 20, createdAt = window.end.minusSeconds(1).toString(), outputTokens = 100))
-        val result = accumulator.result(5)
-        assertEquals(2, result.rows.size)
-        assertEquals(2L, result.rows.sumOf { it.requests })
-        assertEquals(20L, result.rows.first { it.userId == 10L }.totalTokens)
-        assertEquals(20L, sortedUserRanking(result.rows, "total_tokens").first().userId)
-        assertThrows(ApiException::class.java) { accumulator.add(first.copy(id = 9, createdAt = "invalid")) }
+    fun rankingRowsSortByTheSelectedServerMetric() {
+        val rows = listOf(
+            UserUsageRank(userId = 1, totalTokens = 10, requests = 20, actualCost = 0.1),
+            UserUsageRank(userId = 2, totalTokens = 100, requests = 1, actualCost = 2.0),
+        )
+        assertEquals(2L, sortedUserRanking(rows, "total_tokens").first().userId)
+        assertEquals(1L, sortedUserRanking(rows, "requests").first().userId)
+        assertEquals(2L, sortedUserRanking(rows, "actual_cost").first().userId)
     }
 
     @Test

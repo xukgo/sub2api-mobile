@@ -1,6 +1,7 @@
 package com.sub2api.mobile.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,9 +14,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.SegmentedButton
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
@@ -39,6 +43,7 @@ import com.sub2api.mobile.AppUiState
 import com.sub2api.mobile.UsageViewState
 import com.sub2api.mobile.data.UsageFilters
 import com.sub2api.mobile.data.UsageLog
+import com.sub2api.mobile.data.RankingPeriod
 import com.sub2api.mobile.data.accountLabel
 import com.sub2api.mobile.data.channelLabel
 import com.sub2api.mobile.data.channelPerformance
@@ -54,8 +59,9 @@ import com.sub2api.mobile.ui.components.appCardBorder
 import com.sub2api.mobile.ui.components.formatCount
 import com.sub2api.mobile.ui.components.formatDate
 import com.sub2api.mobile.ui.components.formatMoney
+import com.sub2api.mobile.ui.icons.Icon
+import com.sub2api.mobile.ui.icons.Icons
 import java.time.ZoneId
-import java.time.format.DateTimeFormatter
 import java.util.Locale
 
 @Composable
@@ -73,7 +79,7 @@ fun UsageScreen(
 fun AdminUsageScreen(
     state: AppUiState,
     onLoad: (String, Int, UsageFilters) -> Unit,
-    onRanking: (String, String, Boolean) -> Unit,
+    onRanking: (String, String) -> Unit,
     onCancelRanking: () -> Unit,
 ) {
     if (state.user?.role != "admin") { EmptyState("仅管理员可查看所有用量"); return }
@@ -81,7 +87,7 @@ fun AdminUsageScreen(
     DisposableEffect(Unit) { onDispose { onCancelRanking() } }
     LaunchedEffect(mode) {
         if (mode == "records") { onCancelRanking(); onLoad(state.adminUsage.period, 1, state.adminUsage.filters) }
-        else onRanking(state.rankingPeriod, state.rankingMetric, false)
+        else onRanking(state.rankingPeriod, state.rankingMetric)
     }
     Column {
         UsageChoices(listOf("records" to "所有记录", "ranking" to "用户排行"), mode, { mode = it })
@@ -214,18 +220,20 @@ private fun TimingMetric(label: String, value: String) {
 }
 
 @Composable
-private fun UserRanking(state: AppUiState, onLoad: (String, String, Boolean) -> Unit) {
+private fun UserRanking(state: AppUiState, onLoad: (String, String) -> Unit) {
     val ranking = state.ranking
     val rows = remember(ranking, state.rankingMetric) { sortedUserRanking(ranking?.rows.orEmpty(), state.rankingMetric).take(50) }
     LazyColumn(contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        item { UsageChoices(listOf("today" to "今天", "24h" to "最近 24 小时"), state.rankingPeriod, { onLoad(it, state.rankingMetric, false) }) }
-        item { UsageChoices(listOf("total_tokens" to "Tokens", "requests" to "请求数", "actual_cost" to "消费"), state.rankingMetric, { onLoad(state.rankingPeriod, it, false) }) }
-        item { TextButton(onClick = { onLoad(state.rankingPeriod, state.rankingMetric, true) }) { Text("刷新排行") } }
-        if (state.rankingLoading) item { FullScreenLoading(if (state.rankingPeriod == "today") "正在加载用户排行" else "正在统计，已读取 ${state.rankingScanned} 条记录") }
+        item { RankingPeriodPicker(state.rankingPeriod) { onLoad(it, state.rankingMetric) } }
+        if (state.rankingPeriod == "24h") item {
+            Text("与网页版一致：按日期范围聚合，实际日期见下方；这不是精确滚动的 24 小时。", style = MaterialTheme.typography.bodySmall)
+        }
+        item { UsageChoices(listOf("total_tokens" to "Tokens", "requests" to "请求数", "actual_cost" to "消费"), state.rankingMetric, { onLoad(state.rankingPeriod, it) }) }
+        item { TextButton(onClick = { onLoad(state.rankingPeriod, state.rankingMetric) }) { Text("刷新排行") } }
+        if (state.rankingLoading) item { FullScreenLoading("正在加载用户排行") }
         state.rankingError?.let { error -> item { Text(error, color = MaterialTheme.colorScheme.error) } }
         ranking?.let {
-            val formatter = DateTimeFormatter.ofPattern("MM-dd HH:mm:ss").withZone(ZoneId.systemDefault())
-            item { Text("${formatter.format(it.start)} — ${formatter.format(it.end)} · ${ZoneId.systemDefault().id}", style = MaterialTheme.typography.bodySmall) }
+            item { Text("${it.dates.start} — ${it.dates.end}（含结束日期）· ${it.timezone}", style = MaterialTheme.typography.bodySmall) }
             item { SectionHeader("用户用量排行", "Top 50") }
         }
         items(rows, key = { it.userId }) { row ->
@@ -238,7 +246,27 @@ private fun UserRanking(state: AppUiState, onLoad: (String, String, Boolean) -> 
             }
         }
         if (ranking != null && rows.isEmpty() && !state.rankingLoading) item { EmptyState("这个时间范围暂无用户用量") }
-        item { Text("默认显示今天的服务端用户排行。精确的最近 24 小时需要分页读取记录，记录多时需要等待；切换服务或离开页面可取消统计。", style = MaterialTheme.typography.bodySmall) }
+        item { Text("默认显示今天，所有范围均由服务端汇总，并按所选指标显示前 50 名。", style = MaterialTheme.typography.bodySmall) }
+    }
+}
+
+@Composable
+private fun RankingPeriodPicker(selected: String, onSelect: (String) -> Unit) {
+    var expanded by remember { mutableStateOf(false) }
+    val current = RankingPeriod.entries.firstOrNull { it.key == selected } ?: RankingPeriod.TODAY
+    Box(Modifier.fillMaxWidth()) {
+        OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+            Text("统计范围：${current.label}", modifier = Modifier.weight(1f))
+            Icon(Icons.Outlined.ExpandMore, null)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            RankingPeriod.entries.forEach { period ->
+                DropdownMenuItem(text = { Text(period.label) }, onClick = {
+                    expanded = false
+                    onSelect(period.key)
+                })
+            }
+        }
     }
 }
 
