@@ -29,7 +29,9 @@ data class AppRelease(
     val apkSizeBytes: Long? = null,
 )
 
-class AppUpdateRepository {
+private const val UPDATE_REPOSITORY = "xukgo/sub2api-mobile"
+
+class AppUpdateRepository(apiBaseUrl: String = "https://api.github.com/") {
     private val client = OkHttpClient.Builder()
         .connectTimeout(10, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
@@ -42,7 +44,7 @@ class AppUpdateRepository {
         .build()
 
     private val service: GitHubReleaseService = Retrofit.Builder()
-        .baseUrl("https://api.github.com/")
+        .baseUrl(apiBaseUrl)
         .client(releaseClient)
         .addConverterFactory(
             GsonConverterFactory.create(
@@ -78,7 +80,7 @@ class AppUpdateRepository {
             title = release.name.ifBlank { "Sub2API Mobile v$version" },
             releaseNotes = releaseNotesForDisplay(release.body),
             releasePageUrl = release.htmlUrl.ifBlank {
-                "https://github.com/startuip/sub2api-mobile/releases/tag/${release.tagName}"
+                "https://github.com/$UPDATE_REPOSITORY/releases/tag/${release.tagName}"
             },
             apkDownloadUrl = apk?.browserDownloadUrl?.takeIf { it.isNotBlank() },
             apkSha256 = normalizeSha256Digest(apk?.digest),
@@ -257,7 +259,7 @@ private interface GitHubReleaseService {
         "Accept: application/vnd.github+json",
         "X-GitHub-Api-Version: 2022-11-28",
     )
-    @GET("repos/startuip/sub2api-mobile/releases/latest")
+    @GET("repos/$UPDATE_REPOSITORY/releases/latest")
     suspend fun latestRelease(): Response<GitHubReleaseResponse>
 }
 

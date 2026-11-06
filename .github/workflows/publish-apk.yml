@@ -1,0 +1,30 @@
+name: Publish APK to Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: publish-apk
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Publish the latest successful main APK
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out publisher
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+
+      - name: Publish existing CI artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: python3 .github/scripts/publish_apk.py

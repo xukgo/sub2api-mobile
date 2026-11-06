@@ -14,6 +14,22 @@ import java.nio.file.Files
 
 class AppUpdateRepositoryTest {
     @Test
+    fun latestReleaseComesFromOurRepositoryWithOurReleasePageFallback() = runBlocking {
+        MockWebServer().use { server ->
+            server.start()
+            server.enqueue(MockResponse().setHeader("Content-Type", "application/json").setBody("""
+                {"tag_name":"v1.8.2","name":"Sub2API Mobile v1.8.2","body":"更新内容",
+                 "assets":[{"name":"sub2api-mobile-v1.8.2.apk","browser_download_url":"https://github.com/xukgo/sub2api-mobile/releases/download/v1.8.2/sub2api-mobile-v1.8.2.apk"}]}
+            """.trimIndent()))
+            val release = AppUpdateRepository(server.url("/").toString()).latestRelease()
+            assertEquals("/repos/xukgo/sub2api-mobile/releases/latest", server.takeRequest().path)
+            assertEquals("1.8.2", release.versionName)
+            assertEquals("https://github.com/xukgo/sub2api-mobile/releases/tag/v1.8.2", release.releasePageUrl)
+            assertTrue(release.apkDownloadUrl!!.contains("/xukgo/sub2api-mobile/releases/download/"))
+        }
+    }
+
+    @Test
     fun comparesNumericVersionSegments() {
         assertTrue(isVersionNewer("v1.10.0", "1.9.9"))
         assertTrue(isVersionNewer("2.0", "1.99.99"))
