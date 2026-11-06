@@ -69,7 +69,7 @@ Windows：
 
 工作流位于 [`.github/workflows/android.yml`](.github/workflows/android.yml)。提交并推送代码后，分支推送和 Pull Request 都会触发 `Android CI`；也可以在默认分支已有该工作流后，从 Actions 页面点击 **Run workflow** 手动触发。
 
-流程使用 Ubuntu 24.04、JDK 17、Android SDK 35 和仓库中的 Gradle Wrapper，先运行全部 JVM 单元测试与 Android Lint，成功后编译调试 APK。Gradle 最多使用 4 个 worker，并缓存依赖；同一分支的新提交会取消旧构建。
+流程使用 Ubuntu 24.04、JDK 17、Android SDK 35 和仓库中的 Gradle Wrapper。`setup-android` 会显式初始化 SDK 命令行工具、配置 PATH，并安装平台 35 和 Build Tools 34.0.0，不依赖 runner 预先提供 `sdkmanager`。随后运行全部 JVM 单元测试与 Android Lint，成功后编译调试 APK。Gradle 最多使用 4 个 worker，并缓存依赖；同一分支的新提交会取消旧构建。
 
 在仓库 **Actions → Android CI → 对应运行记录 → Artifacts** 下载：
 
