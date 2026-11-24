@@ -148,6 +148,23 @@ class PublisherFlowTest(unittest.TestCase):
             self.publish()
         self.assertFalse(any(call[0] == "release" for call in self.calls))
 
+    def test_annotated_tag_resolves_to_commit(self):
+        tag_path = f"repos/{REPO}/git/ref/tags/v1.8.2"
+        def annotated_gh(*args):
+            path = args[-1]
+            if args[0] == "api" and path == tag_path:
+                return json.dumps({"object": {"type": "tag", "sha": "c" * 40}})
+            if args[0] == "api" and path.endswith("/git/tags/" + "c" * 40):
+                return json.dumps({"object": {"type": "commit", "sha": SHA}})
+            raise AssertionError(args)
+        with patch.object(publisher, "gh", side_effect=annotated_gh):
+            self.assertEqual(SHA, publisher.tag_commit_sha(REPO, tag_path))
+
+    def test_lightweight_tag_at_current_commit_is_reused(self):
+        tag_path = f"repos/{REPO}/git/ref/tags/v1.8.2"
+        with patch.object(publisher, "gh", return_value=json.dumps({"object": {"type": "commit", "sha": SHA}})):
+            self.assertEqual(SHA, publisher.tag_commit_sha(REPO, tag_path))
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -96,6 +96,22 @@ def require_current_main(repo, sha):
         raise PublishError("发布期间 main 出现了新提交，已停止发布；请等待最新构建成功后重试")
 
 
+def tag_commit_sha(repo, tag_path, reference=None):
+    """Resolve lightweight and annotated tag refs to their commit SHA."""
+    reference = reference if reference is not None else api(tag_path, optional=True)
+    if reference is None:
+        return None
+    target = reference.get("object", {})
+    if target.get("type") == "commit":
+        return target.get("sha")
+    if target.get("type") == "tag" and target.get("sha"):
+        annotated = api(f"repos/{repo}/git/tags/{target['sha']}")
+        commit = annotated.get("object", {})
+        if commit.get("type") == "commit":
+            return commit.get("sha")
+    raise PublishError(f"{tag_path.rsplit('/', 1)[-1]} 不是指向提交的有效标签")
+
+
 def publish(repo):
     sha = main_sha(repo)
     query = urlencode({"branch": "main", "head_sha": sha, "per_page": 100})
@@ -109,8 +125,9 @@ def publish(repo):
         version, code, apk, checksum, digest = prepare_apk(directory)
         tag = f"v{version}"
         tag_path = f"repos/{repo}/git/ref/tags/{tag}"
-        if api(tag_path, optional=True) is not None:
-            raise PublishError(f"版本标签 {tag} 已存在，不会覆盖；请增加 versionName/versionCode 并重新构建")
+        existing_tag = api(tag_path, optional=True)
+        if existing_tag is not None and tag_commit_sha(repo, tag_path, existing_tag) != sha:
+            raise PublishError(f"版本标签 {tag} 已存在且指向其他提交，不会覆盖；请检查版本号")
         if api(f"repos/{repo}/releases/tags/{tag}", optional=True) is not None:
             raise PublishError(f"{tag} 已有 Release 或草稿，请先检查该版本，或增加版本号后重新构建")
 
@@ -128,7 +145,7 @@ def publish(repo):
            "--target", sha, "--title", f"Sub2API Mobile {tag}", "--notes-file", str(notes), "--draft")
         require_current_main(repo, sha)
         reference = api(tag_path, optional=True)
-        if reference is not None and (reference["object"]["type"] != "commit" or reference["object"]["sha"] != sha):
+        if reference is not None and tag_commit_sha(repo, tag_path, reference) != sha:
             raise PublishError("版本标签未指向本次构建的提交，已停止发布，请检查 Release 草稿")
         gh("release", "edit", tag, "--repo", repo, "--draft=false", "--prerelease=false", "--latest")
         url = f"https://github.com/{repo}/releases/tag/{tag}"
