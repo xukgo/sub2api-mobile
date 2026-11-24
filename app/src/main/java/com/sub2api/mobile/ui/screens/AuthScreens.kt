@@ -160,7 +160,7 @@ fun LoginScreen(
                     leadingIcon = { Icon(Icons.Outlined.Mail, null) },
                     singleLine = true,
                     enabled = !state.loading,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Email, autoCorrectEnabled = false, imeAction = ImeAction.Next),
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, autoCorrectEnabled = false, imeAction = ImeAction.Next),
                 )
                 OutlinedTextField(
                     value = password,

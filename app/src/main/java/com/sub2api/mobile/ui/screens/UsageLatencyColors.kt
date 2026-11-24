@@ -7,28 +7,28 @@ import androidx.compose.ui.graphics.luminance
 // These are final card colors: each theme keeps its intended hues and readable text.
 private val lightFirstTokenColors = listOf(
     0L to Color(0xFFE3F2E7),
-    5_000L to Color(0xFFFFF3C4),
-    10_000L to Color(0xFFFFDEB5),
-    20_000L to Color(0xFFFAD9DE),
-    40_000L to Color(0xFFFFC0C0),
+    10_000L to Color(0xFFFFF3C4),
+    20_000L to Color(0xFFFFDEB5),
+    40_000L to Color(0xFFFAD9DE),
+    60_000L to Color(0xFFFFC0C0),
 )
 
 private val darkFirstTokenColors = listOf(
     0L to Color(0xFF15442E),
-    5_000L to Color(0xFF50460D),
-    10_000L to Color(0xFF5A3410),
-    20_000L to Color(0xFF542C35),
-    40_000L to Color(0xFF651E29),
+    10_000L to Color(0xFF50460D),
+    20_000L to Color(0xFF5A3410),
+    40_000L to Color(0xFF542C35),
+    60_000L to Color(0xFF651E29),
 )
 
 internal fun firstTokenCardColor(firstTokenMs: Long?, surface: Color): Color {
     if (firstTokenMs == null || firstTokenMs < 0) return surface
     val dark = surface.luminance() < 0.5f
     val firstTokenColors = if (dark) darkFirstTokenColors else lightFirstTokenColors
-    // Requests below 5 s stay green; interpolating toward yellow here turns 3–4 s olive.
-    if (firstTokenMs < 5_000L) {
+    // Requests below 10 s stay green; yellow starts at the 10 s threshold.
+    if (firstTokenMs < 10_000L) {
         val greenEnd = if (dark) Color(0xFF1B5136) else Color(0xFFD5EBDD)
-        return lerp(firstTokenColors.first().second, greenEnd, firstTokenMs / 5_000f)
+        return lerp(firstTokenColors.first().second, greenEnd, firstTokenMs / 10_000f)
     }
     val upper = firstTokenColors.indexOfFirst { firstTokenMs <= it.first }
     return when {

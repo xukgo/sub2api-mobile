@@ -45,7 +45,8 @@ class LoginKeyboardUiTest {
         compose.runOnIdle {
             val email = editors.last()
             assertEquals(InputType.TYPE_CLASS_TEXT, email.inputType and InputType.TYPE_MASK_CLASS)
-            assertEquals(InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS, email.inputType and InputType.TYPE_MASK_VARIATION)
+            assertEquals(InputType.TYPE_TEXT_VARIATION_NORMAL, email.inputType and InputType.TYPE_MASK_VARIATION)
+            assertEquals(EditorInfo.IME_FLAG_FORCE_ASCII, email.imeOptions and EditorInfo.IME_FLAG_FORCE_ASCII)
             assertEquals(EditorInfo.IME_ACTION_NEXT, email.imeOptions and EditorInfo.IME_MASK_ACTION)
         }
 

@@ -12,11 +12,11 @@ class UsageLatencyColorsTest {
         for (surface in listOf(Color.White, Color(0xFF151C18))) {
             assertEquals(surface, firstTokenCardColor(null, surface))
             assertEquals(surface, firstTokenCardColor(-1, surface))
-            assertEquals(firstTokenCardColor(40_000, surface), firstTokenCardColor(40_001, surface))
-            assertEquals(firstTokenCardColor(40_000, surface), firstTokenCardColor(Long.MAX_VALUE, surface))
+            assertEquals(firstTokenCardColor(60_000, surface), firstTokenCardColor(60_001, surface))
+            assertEquals(firstTokenCardColor(60_000, surface), firstTokenCardColor(Long.MAX_VALUE, surface))
             val fast = firstTokenCardColor(0, surface)
             assertTrue(fast.green > fast.red)
-            val slow = firstTokenCardColor(40_000, surface)
+            val slow = firstTokenCardColor(60_000, surface)
             assertTrue(slow.red > slow.green && slow.red > slow.blue)
         }
     }
@@ -25,11 +25,11 @@ class UsageLatencyColorsTest {
     fun intervalsGradeSmoothlyAndLaterThresholdsRemainContinuous() {
         for (surface in listOf(Color.White, Color(0xFF151C18))) {
             val greenStart = firstTokenCardColor(0, surface)
-            val greenMiddle = firstTokenCardColor(2_500, surface)
-            val greenEnd = firstTokenCardColor(4_999, surface)
+            val greenMiddle = firstTokenCardColor(5_000, surface)
+            val greenEnd = firstTokenCardColor(9_999, surface)
             assertNotEquals(greenStart, greenMiddle)
             assertNotEquals(greenMiddle, greenEnd)
-            for ((from, to) in listOf(5_000L to 10_000L, 10_000L to 20_000L, 20_000L to 40_000L)) {
+            for ((from, to) in listOf(10_000L to 20_000L, 20_000L to 40_000L, 40_000L to 60_000L)) {
                 val middle = firstTokenCardColor((from + to) / 2, surface)
                 assertNotEquals(firstTokenCardColor(from, surface), middle)
                 assertNotEquals(firstTokenCardColor(to, surface), middle)
@@ -43,14 +43,14 @@ class UsageLatencyColorsTest {
     }
 
     @Test
-    fun screenshotTimingsAndEveryValueBelowFiveSecondsRemainGreenUntilYellowStarts() {
+    fun everyValueBelowTenSecondsRemainsGreenUntilYellowStarts() {
         for (surface in listOf(Color.White, Color(0xFF151C18))) {
-            val samples = (0L..4_999L).toList() + listOf(3_670L, 3_720L, 4_060L)
+            val samples = 0L..9_999L
             for (ms in samples) {
                 val color = firstTokenCardColor(ms, surface)
                 assertTrue("$ms ms must stay green", color.green > color.red && color.green > color.blue)
             }
-            val yellow = firstTokenCardColor(5_000, surface)
+            val yellow = firstTokenCardColor(10_000, surface)
             assertTrue(yellow.red > yellow.green && yellow.green > yellow.blue)
         }
     }
@@ -59,10 +59,10 @@ class UsageLatencyColorsTest {
     fun bothThemesRetainDistinctGreenYellowOrangeAndRedHues() {
         for (surface in listOf(Color.White, Color(0xFF151C18))) {
             val green = firstTokenCardColor(0, surface)
-            val yellow = firstTokenCardColor(5_000, surface)
-            val orange = firstTokenCardColor(10_000, surface)
-            val pink = firstTokenCardColor(20_000, surface)
-            val red = firstTokenCardColor(40_000, surface)
+            val yellow = firstTokenCardColor(10_000, surface)
+            val orange = firstTokenCardColor(20_000, surface)
+            val pink = firstTokenCardColor(40_000, surface)
+            val red = firstTokenCardColor(60_000, surface)
             assertTrue(green.green > green.red && green.green > green.blue)
             assertTrue(yellow.red > yellow.blue && yellow.green > yellow.blue)
             assertTrue(orange.red > orange.green && orange.green > orange.blue)
@@ -78,7 +78,7 @@ class UsageLatencyColorsTest {
             Triple(Color(0xFF151C18), Color(0xFFE2EAE4), Color(0xFFBEC9C2)),
         )
         for ((surface, body, secondary) in themes) {
-            for (ms in 0L..45_000L step 250L) {
+            for (ms in 0L..65_000L step 250L) {
                 val background = firstTokenCardColor(ms, surface)
                 for (text in listOf(body, secondary)) {
                     val a = background.luminance()
