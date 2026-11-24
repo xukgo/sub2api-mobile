@@ -1,18 +1,22 @@
 package com.sub2api.mobile.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.AlertDialog
@@ -21,24 +25,31 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -47,6 +58,7 @@ import androidx.compose.ui.unit.dp
 import com.sub2api.mobile.AppUiState
 import com.sub2api.mobile.data.ApiKey
 import com.sub2api.mobile.ui.components.EmptyState
+import com.sub2api.mobile.ui.components.GroupOptionRow
 import com.sub2api.mobile.ui.components.AppCardShape
 import com.sub2api.mobile.ui.components.appCardBorder
 import com.sub2api.mobile.ui.components.formatDate
@@ -61,9 +73,13 @@ fun KeysScreen(
     onCreate: (String, Long?, Double?, Int?, () -> Unit) -> Unit,
     onToggle: (ApiKey) -> Unit,
     onDelete: (ApiKey) -> Unit,
+    onLoadGroups: () -> Unit,
+    onUpdateGroup: (ApiKey, Long, () -> Unit) -> Unit,
+    onClearGroupError: () -> Unit,
 ) {
     var showCreate by rememberSaveable { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<ApiKey?>(null) }
+    var groupTargetId by rememberSaveable { mutableStateOf<Long?>(null) }
     val clipboard = LocalClipboardManager.current
 
     Box(Modifier.fillMaxSize()) {
@@ -83,6 +99,7 @@ fun KeysScreen(
                         onCopy = { clipboard.setText(AnnotatedString(key.key)) },
                         onToggle = { onToggle(key) },
                         onDelete = { deleteTarget = key },
+                        onEditGroup = { groupTargetId = key.id },
                     )
                 }
             }
@@ -101,6 +118,17 @@ fun KeysScreen(
             onCreate = { name, groupId, quota, expires -> onCreate(name, groupId, quota, expires) { showCreate = false } },
         )
     }
+    state.keys.firstOrNull { it.id == groupTargetId }?.let { key ->
+        LaunchedEffect(key.id) { onLoadGroups() }
+        KeyGroupSheet(
+            key = key,
+            state = state,
+            onDismiss = { groupTargetId = null; onClearGroupError() },
+            onRetry = onLoadGroups,
+            onSelect = onClearGroupError,
+            onSave = { groupId -> onUpdateGroup(key, groupId) { groupTargetId = null } },
+        )
+    }
     deleteTarget?.let { key ->
         AlertDialog(
             onDismissRequest = { deleteTarget = null },
@@ -115,7 +143,7 @@ fun KeysScreen(
 }
 
 @Composable
-private fun KeyCard(key: ApiKey, onCopy: () -> Unit, onToggle: () -> Unit, onDelete: () -> Unit) {
+private fun KeyCard(key: ApiKey, onCopy: () -> Unit, onToggle: () -> Unit, onDelete: () -> Unit, onEditGroup: () -> Unit) {
     Card(
         shape = AppCardShape,
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -130,7 +158,20 @@ private fun KeyCard(key: ApiKey, onCopy: () -> Unit, onToggle: () -> Unit, onDel
                 Icon(Icons.Outlined.Key, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
                 Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
                     Text(key.name, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(key.group?.name ?: "默认分组", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(
+                        modifier = Modifier.fillMaxWidth()
+                            .clickable(role = Role.Button, onClickLabel = "修改分组", onClick = onEditGroup)
+                            .heightIn(min = 48.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            "分组：${key.group?.name ?: "默认分组"}",
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Icon(Icons.Outlined.ExpandMore, null, tint = MaterialTheme.colorScheme.primary)
+                    }
                 }
                 Switch(checked = key.status == "active", onCheckedChange = { onToggle() })
             }
@@ -154,6 +195,105 @@ private fun KeyCard(key: ApiKey, onCopy: () -> Unit, onToggle: () -> Unit, onDel
                 Column(horizontalAlignment = Alignment.End) {
                     Text("到期时间", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(formatDate(key.expiresAt), style = MaterialTheme.typography.labelMedium)
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun KeyGroupSheet(
+    key: ApiKey,
+    state: AppUiState,
+    onDismiss: () -> Unit,
+    onRetry: () -> Unit,
+    onSelect: () -> Unit,
+    onSave: (Long) -> Unit,
+) {
+    val currentGroupId = key.groupId ?: key.group?.id
+    var selectedGroupId by rememberSaveable(key.id) { mutableStateOf(currentGroupId) }
+    var query by rememberSaveable(key.id) { mutableStateOf("") }
+    val saving by rememberUpdatedState(state.keyGroupSaving)
+    val sheetState = rememberModalBottomSheetState(
+        skipPartiallyExpanded = true,
+        confirmValueChange = { !saving || it != SheetValue.Hidden },
+    )
+    val availableGroups = state.groups.filter { it.id > 0 && it.status == "active" }.distinctBy { it.id }
+    val visibleGroups = availableGroups.filter {
+        it.name.contains(query.trim(), ignoreCase = true) || it.description.orEmpty().contains(query.trim(), ignoreCase = true)
+    }
+    val canSave = !saving && !state.keyGroupsLoading && state.keyGroupsError == null &&
+        selectedGroupId != currentGroupId && availableGroups.any { it.id == selectedGroupId }
+
+    ModalBottomSheet(
+        onDismissRequest = { if (!saving) onDismiss() },
+        sheetState = sheetState,
+    ) {
+        Column(
+            Modifier.fillMaxWidth().fillMaxHeight(0.85f).padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text("修改分组", style = MaterialTheme.typography.titleLarge)
+            Text("API Key：${key.name}", style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "当前分组：${key.group?.name ?: "默认分组"}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+                value = query,
+                onValueChange = { query = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("搜索分组") },
+                leadingIcon = { Icon(Icons.Outlined.Search, null) },
+                singleLine = true,
+                enabled = !saving,
+            )
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().weight(1f).selectableGroup(),
+            ) {
+                when {
+                    state.keyGroupsLoading -> item { Text("正在加载可用分组…", Modifier.padding(vertical = 16.dp)) }
+                    state.keyGroupsError != null -> item {
+                        Column {
+                            Text("加载分组失败：${state.keyGroupsError}", color = MaterialTheme.colorScheme.error)
+                            TextButton(onClick = onRetry) { Text("重新加载") }
+                        }
+                    }
+                    availableGroups.isEmpty() -> item {
+                        Column {
+                            Text("暂无可用分组", Modifier.padding(vertical = 16.dp))
+                            TextButton(onClick = onRetry) { Text("重新加载") }
+                        }
+                    }
+                    visibleGroups.isEmpty() -> item { Text("没有匹配的分组", Modifier.padding(vertical = 16.dp)) }
+                    else -> items(visibleGroups, key = { it.id }) { group ->
+                        GroupOptionRow(
+                            group = group,
+                            selected = group.id == selectedGroupId,
+                            enabled = !saving,
+                            onClick = { selectedGroupId = group.id; onSelect() },
+                        )
+                        if (group.id != visibleGroups.last().id) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                        }
+                    }
+                }
+            }
+            state.keyGroupError?.let {
+                Column {
+                    Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                    TextButton(onClick = onRetry, enabled = !saving && !state.keyGroupsLoading) { Text("重新加载分组") }
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End),
+            ) {
+                TextButton(onClick = onDismiss, enabled = !saving) { Text("取消") }
+                Button(onClick = { selectedGroupId?.let(onSave) }, enabled = canSave) {
+                    Text(if (saving) "保存中…" else "保存修改")
                 }
             }
         }

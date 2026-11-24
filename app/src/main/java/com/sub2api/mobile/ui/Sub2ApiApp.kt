@@ -257,6 +257,9 @@ private fun MainShell(state: AppUiState, viewModel: MainViewModel, onOpenUrl: (S
                     onCreate = viewModel::createKey,
                     onToggle = viewModel::toggleKey,
                     onDelete = viewModel::deleteKey,
+                    onLoadGroups = viewModel::loadKeyGroups,
+                    onUpdateGroup = viewModel::updateKeyGroup,
+                    onClearGroupError = viewModel::clearKeyGroupError,
                 )
                 MainTab.USAGE -> UsageScreen(state, viewModel::setUsagePeriod,
                     onRefresh = { viewModel.loadUsage() }, onPageChange = { viewModel.loadUsage(page = it) })

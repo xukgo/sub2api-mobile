@@ -94,6 +94,10 @@ data class AppUiState(
     val subscriptionSummary: SubscriptionSummary? = null,
     val keys: List<ApiKey> = emptyList(),
     val groups: List<Group> = emptyList(),
+    val keyGroupsLoading: Boolean = false,
+    val keyGroupsError: String? = null,
+    val keyGroupSaving: Boolean = false,
+    val keyGroupError: String? = null,
     val personalUsage: UsageViewState = UsageViewState(),
     val adminUsage: UsageViewState = UsageViewState(),
     val ranking: UsageRanking? = null,
@@ -512,6 +516,47 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 onDone()
             }
             .onFailure { error -> _uiState.update { it.copy(loading = false, message = error.userMessage()) } }
+    }
+
+    fun loadKeyGroups() = launchSession {
+        if (_uiState.value.keyGroupsLoading) return@launchSession
+        _uiState.update { it.copy(keyGroupsLoading = true, keyGroupsError = null, keyGroupError = null) }
+        runSessionCatching { repository.groups() }
+            .onSuccess { groups ->
+                _uiState.update { it.copy(groups = groups, keyGroupsLoading = false) }
+            }
+            .onFailure { error ->
+                _uiState.update { it.copy(keyGroupsLoading = false, keyGroupsError = error.userMessage()) }
+            }
+    }
+
+    fun clearKeyGroupError() = _uiState.update { it.copy(keyGroupError = null) }
+
+    fun updateKeyGroup(key: ApiKey, groupId: Long, onDone: () -> Unit) = launchSession {
+        val state = _uiState.value
+        if (state.keyGroupSaving) return@launchSession
+        val current = state.keys.firstOrNull { it.id == key.id } ?: return@launchSession
+        if ((current.groupId ?: current.group?.id) == groupId) return@launchSession
+        val group = state.groups.firstOrNull { it.id == groupId && it.status == "active" }
+        if (state.keyGroupsLoading || state.keyGroupsError != null ||
+            group == null
+        ) {
+            _uiState.update { it.copy(keyGroupError = "该分组当前不可用，请重新加载分组") }
+            return@launchSession
+        }
+        _uiState.update { it.copy(keyGroupSaving = true, keyGroupError = null) }
+        runSessionCatching { repository.setKeyGroup(key.id, group) }
+            .onSuccess { updated ->
+                _uiState.update { latest -> latest.copy(
+                    keys = latest.keys.map { if (it.id == updated.id) updated else it },
+                    keyGroupSaving = false,
+                    message = "分组已更新",
+                ) }
+                onDone()
+            }
+            .onFailure { error ->
+                _uiState.update { it.copy(keyGroupSaving = false, keyGroupError = error.userMessage()) }
+            }
     }
 
     fun toggleKey(key: ApiKey) = launchSession {

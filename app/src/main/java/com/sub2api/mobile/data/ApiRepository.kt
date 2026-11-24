@@ -62,6 +62,12 @@ class ApiRepository(
     suspend fun setKeyStatus(key: ApiKey, active: Boolean): ApiKey =
         unwrap(service.updateKey(key.id, UpdateApiKeyRequest(status = if (active) "active" else "inactive")))
 
+    suspend fun setKeyGroup(id: Long, group: Group): ApiKey {
+        val updated = unwrap(service.updateKey(id, UpdateApiKeyRequest(groupId = group.id)))
+        // v0.2.19 may return the previous nested group alongside the new group_id.
+        return if (updated.groupId == group.id && updated.group?.id != group.id) updated.copy(group = group) else updated
+    }
+
     suspend fun deleteKey(id: Long) {
         unwrapNullable(service.deleteKey(id))
     }

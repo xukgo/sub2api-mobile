@@ -106,6 +106,7 @@ data class CreateApiKeyRequest(
 data class UpdateApiKeyRequest(
     val name: String? = null,
     val status: String? = null,
+    val groupId: Long? = null,
 )
 
 data class AiAccount(
